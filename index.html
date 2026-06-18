@@ -259,6 +259,30 @@
     font-size:13px;
     margin-bottom:14px;
   }
+  .skip-card{
+    background:var(--warn-bg);
+    border:1px solid var(--warn);
+    border-radius:10px;
+    padding:10px 12px;
+    margin-bottom:10px;
+  }
+  .skip-card .skip-title{
+    font-size:13px;
+    color:var(--warn-text);
+    margin-bottom:8px;
+  }
+  .skip-card .skip-actions{display:flex;gap:8px;}
+  .skip-card button{
+    flex:1;
+    border:1px solid var(--warn);
+    background:none;
+    color:var(--warn-text);
+    border-radius:6px;
+    padding:6px 8px;
+    font-size:12px;
+    cursor:pointer;
+  }
+  .skip-card button.primary{background:var(--warn);color:var(--ink-on-accent);}
   .skeleton{
     background:linear-gradient(90deg,var(--line) 25%,#333330 37%,var(--line) 63%);
     background-size:400% 100%;
@@ -480,6 +504,8 @@
     <div class="saved-flash" id="availSaved">Saved</div>
   </div>
 
+  <div id="skippedCard"></div>
+
   <div class="section-title">This week's plan</div>
   <div class="card" id="planCard">
     <div class="skeleton"></div>
@@ -552,6 +578,7 @@ const ZONE_COLORS = ['#5AA9E6','#5AA9E6','#6FCF73','#6FCF73','#E0B23A','#E8743B'
 function isoDate(d){ return d.toISOString().slice(0,10); }
 function daysAgo(n){ const d = new Date(); d.setDate(d.getDate()-n); return d; }
 function daysFromNow(n){ const d = new Date(); d.setDate(d.getDate()+n); return d; }
+function addDaysToDateStr(dateStr, n){ const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate()+n); return isoDate(d); }
 function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
 function flash(el){ el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 1200); }
 
@@ -891,11 +918,25 @@ function ftpTestDesc(){
   return `Warmup\n- 10m ramp 50-65%\n- 5m 80%\n- 1m 100%\n- 4m 60%\nMain Set\n- 20m freeride\nCooldown\n- 10m 50%`;
 }
 
-function getWeekNumber(programStartDate){
+function weekNumberForDate(programStartDate, targetDate){
   const start = new Date(programStartDate + 'T00:00:00');
-  const planStart = daysFromNow(1);
-  const diffDays = Math.round((planStart - start) / (24*3600*1000));
+  const diffDays = Math.round((targetDate - start) / (24*3600*1000));
   return Math.max(1, Math.floor(diffDays / 7) + 1);
+}
+
+function getWeekNumber(programStartDate){
+  return weekNumberForDate(programStartDate, daysFromNow(1));
+}
+
+function datesForWeekNumber(programStartDate, weekNumber){
+  const start = new Date(programStartDate + 'T00:00:00');
+  const dates = [];
+  for (let i = 0; i < 7; i++){
+    const d = new Date(start);
+    d.setDate(d.getDate() + (weekNumber - 1) * 7 + i);
+    dates.push(isoDate(d));
+  }
+  return dates;
 }
 
 // Weeks 1-4: base phase, endurance only.
@@ -983,12 +1024,12 @@ function distributeSessionIndices(n, totalDays){
   return indices;
 }
 
-function generateProposedRows(mode, goalsCfg, currentFtp, phaseInfo){
+function generateProposedRows(mode, goalsCfg, currentFtp, phaseInfo, dates){
   const sessions = buildSessions(mode, goalsCfg, currentFtp, phaseInfo);
   const placeAt = distributeSessionIndices(sessions.length, 7);
   const rows = [];
   for (let i=0; i<7; i++){
-    const date = isoDate(daysFromNow(i+1));
+    const date = dates[i];
     const sessionIdx = placeAt.indexOf(i);
     if (sessionIdx !== -1){
       rows.push({ date, ...sessions[sessionIdx], id:null, external_id:null });
@@ -1005,7 +1046,9 @@ async function loadWeekPlan(){
 
   let existingEvents = [];
   try {
-    existingEvents = await icuFetch('events', { oldest: dates[0], newest: dates[dates.length-1] });
+    // newest is treated as midnight at the *start* of that date by Intervals.icu, so push
+    // it one day past the window's last day or events on that final day get excluded.
+    existingEvents = await icuFetch('events', { oldest: dates[0], newest: isoDate(daysFromNow(8)) });
   } catch(e){
     console.warn('Could not load existing calendar events', e);
   }
@@ -1039,7 +1082,7 @@ async function loadWeekPlan(){
     const signals = await computeSignals(window.__lastWellnessSorted || []);
     const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
     reasoning = phaseReasoning(phaseInfo) + ' ' + decision.reasoning;
-    const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo);
+    const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo, dates);
     proposed.forEach((p,i) => { rows[i] = { ...rows[i], ...p }; });
   }
 
@@ -1296,17 +1339,185 @@ async function clearPlanDay(i){
   renderPlan(window.__planRows, existingReasoning);
 }
 
+async function autoExtendHorizon(){
+  const currentWeekNum = weekNumberForDate(goals.program_start_date, daysFromNow(1));
+  const horizonWeekNum = weekNumberForDate(goals.program_start_date, daysFromNow(7));
+  const todayStr = isoDate(new Date());
+  let extendedAny = false;
+
+  for (let w = currentWeekNum; w <= horizonWeekNum; w++){
+    const weekDates = datesForWeekNumber(goals.program_start_date, w);
+    if (weekDates[6] < todayStr) continue; // fully past week — never touch it
+
+    let events = [];
+    try {
+      events = await icuFetch('events', { oldest: weekDates[0], newest: addDaysToDateStr(weekDates[6], 1) });
+    } catch(e){
+      continue; // if we can't check, don't risk overwriting — skip this week
+    }
+
+    const hasAny = weekDates.some(d => (events || []).some(ev =>
+      (ev.start_date_local || '').slice(0,10) === d && ['WORKOUT','NOTE'].includes(ev.category)
+    ));
+    if (hasAny) continue; // already populated, or you've edited it yourself — leave it alone
+
+    const phaseInfo = computePhase(w);
+    const signals = await computeSignals(window.__lastWellnessSorted || []);
+    const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
+    const rows = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo, weekDates);
+
+    for (const row of rows){
+      await saveRowToIntervals(row);
+    }
+
+    try {
+      await sb.from('adjustment_log').insert({
+        week_start: weekDates[0],
+        reasoning: 'Auto-extended on app open — ' + phaseReasoning(phaseInfo) + ' ' + decision.reasoning,
+        details: rows,
+      });
+    } catch(e){ /* non-fatal */ }
+
+    extendedAny = true;
+  }
+  return extendedAny;
+}
+
+async function detectSkippedSessions(activities){
+  const todayStr = isoDate(new Date());
+  const lookbackStart = isoDate(daysAgo(14));
+
+  let pastEvents = [];
+  try {
+    pastEvents = await icuFetch('events', { oldest: lookbackStart, newest: todayStr });
+  } catch(e){
+    return [];
+  }
+
+  const pastWorkouts = (pastEvents || []).filter(ev =>
+    ev.category === 'WORKOUT' && (ev.start_date_local || '').slice(0,10) < todayStr
+  );
+  if (!pastWorkouts.length) return [];
+
+  const activityDates = new Set((activities || []).map(a => (a.start_date_local || '').slice(0,10)));
+  const missed = pastWorkouts.filter(ev => !activityDates.has((ev.start_date_local || '').slice(0,10)));
+  if (!missed.length) return [];
+
+  let ackedDates = new Set();
+  try {
+    const { data: acks } = await sb.from('skip_acknowledgements').select('date');
+    ackedDates = new Set((acks || []).map(a => a.date));
+  } catch(e){ /* if this fails, just show everything — safer than silently hiding real misses */ }
+
+  return missed
+    .filter(ev => !ackedDates.has((ev.start_date_local || '').slice(0,10)))
+    .map(ev => ({
+      date: (ev.start_date_local || '').slice(0,10),
+      name: ev.name || 'Workout',
+      type: ev.type || 'Ride',
+      description: ev.description || '',
+      duration: ev.moving_time ? Math.round(ev.moving_time/60) : 0,
+    }));
+}
+
+function renderSkippedCard(missed){
+  const card = document.getElementById('skippedCard');
+  if (!missed || !missed.length){ card.innerHTML = ''; return; }
+
+  card.innerHTML = missed.map((m, idx) => `
+    <div class="skip-card">
+      <div class="skip-title">Looks like <strong>${m.name}</strong> on ${m.date} didn't happen — no matching activity synced.</div>
+      <div class="skip-actions">
+        <button class="reschedule-skip" data-idx="${idx}">Reschedule</button>
+        <button class="dismiss-skip primary" data-idx="${idx}">Skip it</button>
+      </div>
+    </div>
+  `).join('');
+
+  card.querySelectorAll('.reschedule-skip').forEach(btn => btn.addEventListener('click', () => {
+    rescheduleSkippedSession(missed[parseInt(btn.dataset.idx,10)]);
+  }));
+  card.querySelectorAll('.dismiss-skip').forEach(btn => btn.addEventListener('click', () => {
+    dismissSkippedSession(missed[parseInt(btn.dataset.idx,10)]);
+  }));
+}
+
+async function dismissSkippedSession(item){
+  try {
+    await sb.from('skip_acknowledgements').upsert({ date: item.date, action: 'skipped' });
+  } catch(e){
+    alert('Could not save: ' + e.message);
+    return;
+  }
+  window.__skippedSessions = (window.__skippedSessions || []).filter(m => m.date !== item.date);
+  renderSkippedCard(window.__skippedSessions);
+}
+
+async function rescheduleSkippedSession(item){
+  const rows = window.__planRows || [];
+  let target = rows.find(r => r.type === 'Rest');
+  if (!target) target = rows.find(r => (r.name||'').toLowerCase().includes('easy endurance'));
+  if (!target){
+    alert("Couldn't find an open day in the next 7 days to move this to — try clearing a day first, or just skip it.");
+    return;
+  }
+
+  target.type = item.type;
+  target.name = item.name;
+  target.duration = item.duration;
+  target.description = item.description;
+
+  try {
+    await saveRowToIntervals(target);
+    await sb.from('skip_acknowledgements').upsert({ date: item.date, action: 'rescheduled' });
+  } catch(e){
+    alert('Could not reschedule: ' + e.message);
+    return;
+  }
+
+  window.__skippedSessions = (window.__skippedSessions || []).filter(m => m.date !== item.date);
+  renderSkippedCard(window.__skippedSessions);
+  const reasoning = document.querySelector('.plan-reasoning')?.textContent || '';
+  renderPlan(rows, reasoning);
+}
+
 async function suggestPlan(){
+  const dates = [];
+  for (let i=1; i<=7; i++) dates.push(isoDate(daysFromNow(i)));
   const weekNumber = getWeekNumber(goals.program_start_date);
   const phaseInfo = computePhase(weekNumber);
   const signals = await computeSignals(window.__lastWellnessSorted || []);
   const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
-  const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo);
+  const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo, dates);
   window.__planRows = proposed.map(p => {
     const existing = window.__planRows.find(r => r.date === p.date && r.id);
     return existing ? { ...p, id: existing.id, external_id: existing.external_id } : p;
   });
   renderPlan(window.__planRows, phaseReasoning(phaseInfo) + ' ' + decision.reasoning);
+}
+
+async function saveRowToIntervals(row){
+  const payload = {
+    category: row.type === 'Rest' ? 'NOTE' : 'WORKOUT',
+    start_date_local: `${row.date}T06:00:00`,
+    name: row.name || (row.type === 'Rest' ? 'Rest day' : row.type),
+    external_id: `proj270-${row.date}`,
+  };
+  if (row.type !== 'Rest'){
+    payload.type = row.type;
+    if (row.duration) payload.moving_time = row.duration * 60;
+    if (row.description) payload.description = row.description;
+  } else if (row.description){
+    payload.description = row.description;
+  }
+
+  if (row.id){
+    await icuWrite(`events/${row.id}`, 'PUT', payload);
+  } else {
+    const created = await icuWrite('events', 'POST', payload);
+    if (created && created.id) row.id = created.id;
+  }
+  return row;
 }
 
 async function savePlan(){
@@ -1315,26 +1526,7 @@ async function savePlan(){
   btn.textContent = 'Saving...';
   try {
     for (const row of window.__planRows){
-      const payload = {
-        category: row.type === 'Rest' ? 'NOTE' : 'WORKOUT',
-        start_date_local: `${row.date}T06:00:00`,
-        name: row.name || (row.type === 'Rest' ? 'Rest day' : row.type),
-        external_id: `proj270-${row.date}`,
-      };
-      if (row.type !== 'Rest'){
-        payload.type = row.type;
-        if (row.duration) payload.moving_time = row.duration * 60;
-        if (row.description) payload.description = row.description;
-      } else if (row.description){
-        payload.description = row.description;
-      }
-
-      if (row.id){
-        await icuWrite(`events/${row.id}`, 'PUT', payload);
-      } else {
-        const created = await icuWrite('events', 'POST', payload);
-        if (created && created.id) row.id = created.id;
-      }
+      await saveRowToIntervals(row);
     }
 
     const reasoning = document.querySelector('.plan-reasoning')?.textContent || '';
@@ -1357,10 +1549,11 @@ async function savePlan(){
 
 async function loadDashboardData(){
   const [wellness, activities, sportSettings] = await Promise.all([
-    icuFetch('wellness', { oldest: isoDate(daysAgo(30)), newest: isoDate(new Date()) }),
+    // Note: omitting `newest` entirely — Intervals.icu treats a bare date there as
+    // midnight at the *start* of that day, which silently excludes anything from today.
+    icuFetch('wellness', { oldest: isoDate(daysAgo(30)) }),
     icuFetch('activities', {
       oldest: isoDate(daysAgo(14)),
-      newest: isoDate(new Date()),
       fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts'
     }),
     icuFetch('sport-settings'),
@@ -1389,6 +1582,7 @@ async function loadDashboardData(){
 
   window.__lastWellnessSorted = sorted;
   window.__currentFtp = currentFtp;
+  window.__lastActivities = activities;
 
   renderFtpWeight(currentFtp, currentWeight, ftpSource);
   renderPMC(latest?.ctl, latest?.atl);
@@ -1439,9 +1633,22 @@ async function init(){
     await loadDashboardData();
 
     try {
+      await autoExtendHorizon();
+    } catch (extendErr){
+      console.warn('Could not auto-extend the planning horizon', extendErr);
+    }
+
+    try {
       await loadWeekPlan();
     } catch (planErr){
       document.getElementById('planCard').innerHTML = `<div style="font-size:13px;color:var(--muted);">Could not load the weekly plan: ${planErr.message}</div>`;
+    }
+
+    try {
+      window.__skippedSessions = await detectSkippedSessions(window.__lastActivities);
+      renderSkippedCard(window.__skippedSessions);
+    } catch (skipErr){
+      console.warn('Could not check for skipped sessions', skipErr);
     }
 
   } catch (e){
