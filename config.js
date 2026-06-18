@@ -8,5 +8,5 @@
 // Intervals.icu API key, never goes here — it only lives as a secret
 // on the Edge Function.
 
-window.SUPABASE_URL = 'YOUR_SUPABASE_URL';         // e.g. https://abcxyz.supabase.co
-window.SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // the legacy anon/public key
+window.SUPABASE_URL = 'https://uictdfglyuvenoqcibsb.supabase.co';         // e.g. https://abcxyz.supabase.co
+window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I'; // the legacy anon/public key
