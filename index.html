@@ -480,8 +480,8 @@
 // CONFIG — fill these in after you create the Supabase project
 // ---------------------------------------------------------------
 const CONFIG = {
-  SUPABASE_URL: 'https://uictdfglyuvenoqcibsb.supabase.co',       // e.g. https://abcxyz.supabase.co
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I',
+  SUPABASE_URL: 'YOUR_SUPABASE_URL',       // e.g. https://abcxyz.supabase.co
+  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
 };
 // ---------------------------------------------------------------
 
@@ -522,6 +522,7 @@ async function loadGoals(){
   const { data, error } = await sb.from('goals').select('*').eq('id', 1).single();
   if (error) throw error;
   goals = data;
+  if (!goals.program_start_date) goals.program_start_date = isoDate(new Date());
   document.getElementById('daysInput').value = goals.days_per_week;
   document.getElementById('hoursInput').value = goals.hours_per_week;
   document.getElementById('baselineFtp').value = goals.baseline_ftp;
@@ -782,40 +783,114 @@ function decideMode(signals, goalsCfg, currentFtp){
   return { mode, reasoning: reasons.join(' ') };
 }
 
-function enduranceDesc(ftp, easy){
-  const low = Math.round(ftp*0.6), high = Math.round(ftp*0.75);
-  return `${easy ? 'Easy' : 'Steady'} Zone 2, conversational pace. Target ${low}-${high}W.`;
-}
-function intervalDesc(ftp, harder){
-  const reps = harder ? 4 : 3;
-  const low = Math.round(ftp*0.88), high = Math.round(ftp*0.94);
-  return `Warm up 15min easy. ${reps} x 12min @ ${low}-${high}W (sweet spot), 4min easy recovery between efforts. Cool down 10min.`;
+function enduranceDesc(totalMin, easy){
+  const warmup = totalMin >= 40 ? 10 : 5;
+  const cooldown = totalMin >= 40 ? 8 : 5;
+  const mainMin = Math.max(5, totalMin - warmup - cooldown);
+  const lo = easy ? 55 : 60;
+  const hi = easy ? 65 : 75;
+  return `Warmup\n- ${warmup}m 50-60%\nMain Set\n- ${mainMin}m ${lo}-${hi}%\nCooldown\n- ${cooldown}m 50%`;
 }
 
-function buildSessions(mode, goalsCfg, currentFtp){
+function overUnderDesc(totalMin){
+  const warmup = 12;
+  const blockMin = 4*(2+2);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m 50-65%\nMain Set 4x\n- 2m 95%\n- 2m 105%\nCooldown\n- ${cooldown}m 50-60%`;
+}
+
+function vo2maxDesc(totalMin){
+  const warmup = 18;
+  const blockMin = 5*(3+3);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- 15m 50-65%\n- 3m 90%\nMain Set 5x\n- 3m 110-115%\n- 3m 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+function thresholdDesc(totalMin){
+  const warmup = 12;
+  const blockMin = 3*(8+4);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m 50-65%\nMain Set 3x\n- 8m 95-100%\n- 4m 55%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+// Fixed, never-scaled — the point is week-to-week comparability, not variety.
+function benchmarkDesc(){
+  return `Warmup\n- 12m 50-65%\nMain Set 3x\n- 10m 90%\n- 5m 55%\nCooldown\n- 8m 50%`;
+}
+
+// Classic 20-minute test protocol. FTP ≈ 95% of the freeride segment's average power.
+function ftpTestDesc(){
+  return `Warmup\n- 10m 50-65%\n- 5m 80%\n- 1m 100%\n- 4m 60%\nMain Set\n- 20m freeride\nCooldown\n- 10m 50%`;
+}
+
+function getWeekNumber(programStartDate){
+  const start = new Date(programStartDate + 'T00:00:00');
+  const planStart = daysFromNow(1);
+  const diffDays = Math.round((planStart - start) / (24*3600*1000));
+  return Math.max(1, Math.floor(diffDays / 7) + 1);
+}
+
+// Weeks 1-4: base phase, endurance only.
+// Week 5+: build, in 4-week mesocycles (3 load weeks + 1 scheduled deload).
+// Every other deload (~every 8 weeks) doubles as the FTP test week.
+function computePhase(weekNumber){
+  if (weekNumber <= 4){
+    return { phase:'base', isScheduledDeload:false, isFtpTestWeek:false, cyclePos:null, weekNumber };
+  }
+  const buildWeek = weekNumber - 4;
+  const cyclePos = ((buildWeek - 1) % 4) + 1;
+  const isScheduledDeload = cyclePos === 4;
+  const deloadIndex = Math.ceil(buildWeek / 4);
+  const isFtpTestWeek = isScheduledDeload && (deloadIndex % 2 === 1);
+  return { phase:'build', isScheduledDeload, isFtpTestWeek, cyclePos, weekNumber };
+}
+
+function phaseReasoning(phaseInfo){
+  if (phaseInfo.phase === 'base'){
+    return `Base phase, week ${phaseInfo.weekNumber} of 4 — building aerobic foundation before structured intervals start.`;
+  }
+  if (phaseInfo.isFtpTestWeek){
+    return `Week ${phaseInfo.weekNumber} — scheduled deload, and your periodic FTP test (roughly every 8 weeks).`;
+  }
+  if (phaseInfo.isScheduledDeload){
+    return `Week ${phaseInfo.weekNumber} — scheduled deload (every 4th build week, regardless of how the numbers look).`;
+  }
+  return `Week ${phaseInfo.weekNumber}, build cycle day ${phaseInfo.cyclePos} of 3 before the next deload.`;
+}
+
+function buildSessions(mode, goalsCfg, currentFtp, phaseInfo){
   const totalMin = Math.round(goalsCfg.hours_per_week * 60);
   let days = goalsCfg.days_per_week;
   let weekMin = totalMin;
-  if (mode === 'recovery'){ weekMin = Math.round(totalMin * 0.7); days = Math.max(2, days - 1); }
-  if (mode === 'progress'){ weekMin = Math.round(Math.min(totalMin * 1.1, totalMin + 60)); }
+  const reduceLoad = (mode === 'recovery') || phaseInfo.isScheduledDeload;
+  if (reduceLoad){ weekMin = Math.round(totalMin * 0.7); days = Math.max(2, days - 1); }
+  if (mode === 'progress' && !phaseInfo.isScheduledDeload){ weekMin = Math.round(Math.min(totalMin * 1.1, totalMin + 60)); }
 
   const sessions = [];
   const longDur = Math.round(weekMin * 0.35);
-  sessions.push({ type:'Ride', name:'Long endurance', duration: longDur, description: enduranceDesc(currentFtp, false) });
+  sessions.push({ type:'Ride', name:'Long endurance', duration: longDur, description: enduranceDesc(longDur, false) });
 
-  if (mode !== 'recovery'){
-    const qualityCount = (days >= 4) ? 2 : 1;
-    const eachQualityDur = Math.round(weekMin * (qualityCount === 2 ? 0.18 : 0.22));
-    for (let q=0; q<qualityCount; q++){
-      let name = 'Sweet spot intervals';
-      if (qualityCount > 1) name += ` ${q+1}`;
+  const isQualityWeek = phaseInfo.phase === 'build' && !reduceLoad;
+
+  if (phaseInfo.isFtpTestWeek){
+    sessions.push({ type:'Ride', name:'FTP Test (20min)', duration: 50, description: ftpTestDesc() });
+  } else if (isQualityWeek){
+    // Slot 1: fixed benchmark — same structure every time, so completed power/RPE/HR are directly comparable week to week.
+    sessions.push({ type:'Ride', name:'Sweet Spot Benchmark', duration: 65, description: benchmarkDesc() });
+
+    // Slot 2: rotates through variety across the 3 load weeks of each mesocycle, only if you've got 4+ days.
+    if (days >= 4){
+      const variety = [
+        { label:'Over-unders', build: overUnderDesc },
+        { label:'VO2max intervals', build: vo2maxDesc },
+        { label:'Threshold intervals', build: thresholdDesc },
+      ];
+      const idx = ((phaseInfo.cyclePos || 1) - 1) % 3;
+      const chosen = variety[idx];
+      const varDur = Math.round(weekMin * 0.18);
+      let name = chosen.label;
       if (mode === 'progress') name += ' (progression)';
-      sessions.push({
-        type:'Ride',
-        name,
-        duration: eachQualityDur,
-        description: intervalDesc(currentFtp, mode === 'progress'),
-      });
+      sessions.push({ type:'Ride', name, duration: varDur, description: chosen.build(varDur) });
     }
   }
 
@@ -824,7 +899,7 @@ function buildSessions(mode, goalsCfg, currentFtp){
     const usedMin = sessions.reduce((s,x) => s + x.duration, 0);
     const each = Math.max(20, Math.round((weekMin - usedMin) / remaining));
     for (let i=0; i<remaining; i++){
-      sessions.push({ type:'Ride', name:'Easy endurance', duration: each, description: enduranceDesc(currentFtp, true) });
+      sessions.push({ type:'Ride', name:'Easy endurance', duration: each, description: enduranceDesc(each, true) });
     }
   }
   return sessions;
@@ -840,8 +915,8 @@ function distributeSessionIndices(n, totalDays){
   return indices;
 }
 
-function generateProposedRows(mode, goalsCfg, currentFtp){
-  const sessions = buildSessions(mode, goalsCfg, currentFtp);
+function generateProposedRows(mode, goalsCfg, currentFtp, phaseInfo){
+  const sessions = buildSessions(mode, goalsCfg, currentFtp, phaseInfo);
   const placeAt = distributeSessionIndices(sessions.length, 7);
   const rows = [];
   for (let i=0; i<7; i++){
@@ -888,10 +963,12 @@ async function loadWeekPlan(){
   const hasAnyExisting = rows.some(r => r.id);
   let reasoning = '';
   if (!hasAnyExisting){
+    const weekNumber = getWeekNumber(goals.program_start_date);
+    const phaseInfo = computePhase(weekNumber);
     const signals = await computeSignals(window.__lastWellnessSorted || []);
     const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
-    reasoning = decision.reasoning;
-    const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp);
+    reasoning = phaseReasoning(phaseInfo) + ' ' + decision.reasoning;
+    const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo);
     proposed.forEach((p,i) => { rows[i] = { ...rows[i], ...p }; });
   }
 
@@ -983,14 +1060,16 @@ async function clearPlanDay(i){
 }
 
 async function suggestPlan(){
+  const weekNumber = getWeekNumber(goals.program_start_date);
+  const phaseInfo = computePhase(weekNumber);
   const signals = await computeSignals(window.__lastWellnessSorted || []);
   const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
-  const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp);
+  const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo);
   window.__planRows = proposed.map(p => {
     const existing = window.__planRows.find(r => r.date === p.date && r.id);
     return existing ? { ...p, id: existing.id, external_id: existing.external_id } : p;
   });
-  renderPlan(window.__planRows, decision.reasoning);
+  renderPlan(window.__planRows, phaseReasoning(phaseInfo) + ' ' + decision.reasoning);
 }
 
 async function savePlan(){
