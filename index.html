@@ -838,38 +838,38 @@ function enduranceDesc(totalMin, easy){
   const mainMin = Math.max(5, totalMin - warmup - cooldown);
   const lo = easy ? 55 : 60;
   const hi = easy ? 65 : 75;
-  return `Warmup\n- ${warmup}m 50-60%\nMain Set\n- ${mainMin}m ${lo}-${hi}%\nCooldown\n- ${cooldown}m 50%`;
+  return `Warmup\n- ${warmup}m ramp 50-60%\nMain Set\n- ${mainMin}m ${lo}-${hi}%\nCooldown\n- ${cooldown}m 50%`;
 }
 
 function overUnderDesc(totalMin){
   const warmup = 12;
   const blockMin = 4*(2+2);
   const cooldown = Math.max(5, totalMin - warmup - blockMin);
-  return `Warmup\n- ${warmup}m 50-65%\nMain Set 4x\n- 2m 95%\n- 2m 105%\nCooldown\n- ${cooldown}m 50-60%`;
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set 4x\n- 2m 95%\n- 2m 105%\nCooldown\n- ${cooldown}m ramp 60-50%`;
 }
 
 function vo2maxDesc(totalMin){
   const warmup = 18;
   const blockMin = 5*(3+3);
   const cooldown = Math.max(5, totalMin - warmup - blockMin);
-  return `Warmup\n- 15m 50-65%\n- 3m 90%\nMain Set 5x\n- 3m 110-115%\n- 3m 50%\nCooldown\n- ${cooldown}m 50%`;
+  return `Warmup\n- 15m ramp 50-65%\n- 3m 90%\nMain Set 5x\n- 3m 110-115%\n- 3m 50%\nCooldown\n- ${cooldown}m 50%`;
 }
 
 function thresholdDesc(totalMin){
   const warmup = 12;
   const blockMin = 3*(8+4);
   const cooldown = Math.max(5, totalMin - warmup - blockMin);
-  return `Warmup\n- ${warmup}m 50-65%\nMain Set 3x\n- 8m 95-100%\n- 4m 55%\nCooldown\n- ${cooldown}m 50%`;
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set 3x\n- 8m 95-100%\n- 4m 55%\nCooldown\n- ${cooldown}m 50%`;
 }
 
 // Fixed, never-scaled — the point is week-to-week comparability, not variety.
 function benchmarkDesc(){
-  return `Warmup\n- 12m 50-65%\nMain Set 3x\n- 10m 90%\n- 5m 55%\nCooldown\n- 8m 50%`;
+  return `Warmup\n- 12m ramp 50-65%\nMain Set 3x\n- 10m 90%\n- 5m 55%\nCooldown\n- 8m 50%`;
 }
 
 // Classic 20-minute test protocol. FTP ≈ 95% of the freeride segment's average power.
 function ftpTestDesc(){
-  return `Warmup\n- 10m 50-65%\n- 5m 80%\n- 1m 100%\n- 4m 60%\nMain Set\n- 20m freeride\nCooldown\n- 10m 50%`;
+  return `Warmup\n- 10m ramp 50-65%\n- 5m 80%\n- 1m 100%\n- 4m 60%\nMain Set\n- 20m freeride\nCooldown\n- 10m 50%`;
 }
 
 function getWeekNumber(programStartDate){
@@ -1052,25 +1052,39 @@ function parseWorkoutSteps(desc){
     const stepMatch = line.match(/-\s*(\d+)\s*m\s+(.+)/i);
     if (!stepMatch) return;
     const duration = parseInt(stepMatch[1], 10);
-    const intensityRaw = stepMatch[2].trim();
-    let lo, hi, isFreeride = false;
+    let intensityRaw = stepMatch[2].trim();
+    let isRamp = false;
+    if (/^ramp\s+/i.test(intensityRaw)){
+      isRamp = true;
+      intensityRaw = intensityRaw.replace(/^ramp\s+/i, '');
+    }
+    let startPct, endPct, isFreeride = false;
     if (/freeride/i.test(intensityRaw)){
       isFreeride = true;
-      lo = hi = 115;
+      startPct = endPct = 115;
     } else {
       const rangeMatch = intensityRaw.match(/(\d+)\s*-\s*(\d+)\s*%/);
       if (rangeMatch){
-        lo = parseInt(rangeMatch[1], 10);
-        hi = parseInt(rangeMatch[2], 10);
+        startPct = parseInt(rangeMatch[1], 10);
+        endPct = parseInt(rangeMatch[2], 10);
       } else {
         const singleMatch = intensityRaw.match(/(\d+)\s*%/);
-        lo = hi = singleMatch ? parseInt(singleMatch[1], 10) : 60;
+        startPct = endPct = singleMatch ? parseInt(singleMatch[1], 10) : 60;
       }
     }
-    pendingBlock.push({ duration, lo, hi, isFreeride });
+    pendingBlock.push({ duration, startPct, endPct, isRamp, isFreeride });
   });
   flushBlock();
   return steps;
+}
+
+// Coggan-style 5-zone bands, matching the Z1-Z5 colors used elsewhere in the app.
+function intensityZoneColor(pct){
+  if (pct < 55) return 'var(--z1)';
+  if (pct < 76) return 'var(--z2)';
+  if (pct < 91) return 'var(--z3)';
+  if (pct <= 105) return 'var(--z4)';
+  return 'var(--z5)';
 }
 
 function buildSessionGraphSvg(row){
@@ -1080,28 +1094,36 @@ function buildSessionGraphSvg(row){
   if (!totalMin) return '';
 
   const W = 600, H = 110, baseY = 100, topY = 8, maxPct = 130;
-  const fill = sessionAccentColor(row);
   const heightForPct = pct => baseY - (Math.min(pct, maxPct) / maxPct) * (baseY - topY);
 
-  let points = [`0,${baseY}`];
+  let shapes = '';
   let x = 0;
   steps.forEach(st => {
     const w = (st.duration / totalMin) * W;
-    points.push(`${x.toFixed(1)},${heightForPct(st.lo).toFixed(1)}`);
-    points.push(`${(x + w).toFixed(1)},${heightForPct(st.hi).toFixed(1)}`);
+    const colorPct = st.isFreeride ? 115 : (st.startPct + st.endPct) / 2;
+    const color = intensityZoneColor(colorPct);
+    if (st.isRamp){
+      // Genuine ramp: diagonal slope from startPct to endPct over this step's duration.
+      const y1 = heightForPct(st.startPct);
+      const y2 = heightForPct(st.endPct);
+      shapes += `<polygon points="${x.toFixed(1)},${baseY} ${x.toFixed(1)},${y1.toFixed(1)} ${(x+w).toFixed(1)},${y2.toFixed(1)} ${(x+w).toFixed(1)},${baseY}" fill="${color}" opacity="0.85"/>`;
+    } else {
+      // Flat target (single value, or a range to hold within) — constant height for the whole step.
+      const y = heightForPct(Math.max(st.startPct, st.endPct));
+      shapes += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${Math.max(w,0).toFixed(1)}" height="${(baseY-y).toFixed(1)}" fill="${color}" opacity="0.85"/>`;
+    }
     x += w;
   });
-  points.push(`${x.toFixed(1)},${baseY}`);
 
   const ftpLineY = heightForPct(100).toFixed(1);
-  const freerideStart = steps.some(s => s.isFreeride);
+  const freerideStep = steps.some(s => s.isFreeride);
 
   return `
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:80px;display:block;margin-bottom:10px;">
-      <line x1="0" y1="${ftpLineY}" x2="${W}" y2="${ftpLineY}" stroke="var(--line)" stroke-width="1" stroke-dasharray="4,4"/>
-      <polygon points="${points.join(' ')}" fill="${fill}" opacity="0.85"/>
+      ${shapes}
+      <line x1="0" y1="${ftpLineY}" x2="${W}" y2="${ftpLineY}" stroke="var(--ink)" stroke-width="1" stroke-dasharray="4,4" opacity="0.4"/>
     </svg>
-    ${freerideStart ? '<div style="font-size:10px;color:var(--muted);margin-top:-8px;margin-bottom:8px;">Dashed line = FTP · shaded peak = all-out test effort</div>' : '<div style="font-size:10px;color:var(--muted);margin-top:-8px;margin-bottom:8px;">Dashed line = 100% FTP</div>'}
+    ${freerideStep ? '<div style="font-size:10px;color:var(--muted);margin-top:-8px;margin-bottom:8px;">Dashed line = 100% FTP · tall segment = all-out test effort</div>' : '<div style="font-size:10px;color:var(--muted);margin-top:-8px;margin-bottom:8px;">Dashed line = 100% FTP</div>'}
   `;
 }
 
@@ -1113,6 +1135,7 @@ function sessionAccentColor(row){
   if (n.includes('endurance')) return 'var(--z2)';
   return 'var(--z4)';
 }
+
 
 function swapPlanDays(i, j){
   const rows = window.__planRows;
