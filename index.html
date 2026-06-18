@@ -138,6 +138,22 @@
     color:var(--muted);
     margin:22px 0 8px 2px;
   }
+  .section-title-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin:22px 0 8px 2px;
+  }
+  .section-title-row .section-title{margin:0;}
+  .refresh-btn{
+    background:none;
+    border:none;
+    color:var(--accent);
+    font-size:12px;
+    cursor:pointer;
+    padding:2px 4px;
+  }
+  .refresh-btn:disabled{color:var(--muted);cursor:default;}
 
   .sleep-bars{display:flex;align-items:flex-end;gap:6px;margin-top:10px;}
   .sleep-bar{flex:1;display:flex;flex-direction:column;align-items:center;}
@@ -502,7 +518,10 @@
 
   <div class="view" id="view-activities">
 
-  <div class="section-title">Recent activities</div>
+  <div class="section-title-row">
+    <div class="section-title">Recent activities</div>
+    <button class="refresh-btn" id="refreshActivitiesBtn">↻ Refresh</button>
+  </div>
   <div class="card" id="activitiesCard">
     <div class="skeleton"></div>
   </div>
@@ -1336,6 +1355,49 @@ async function savePlan(){
   }
 }
 
+async function loadDashboardData(){
+  const [wellness, activities, sportSettings] = await Promise.all([
+    icuFetch('wellness', { oldest: isoDate(daysAgo(30)), newest: isoDate(new Date()) }),
+    icuFetch('activities', {
+      oldest: isoDate(daysAgo(14)),
+      newest: isoDate(new Date()),
+      fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts'
+    }),
+    icuFetch('sport-settings'),
+  ]);
+
+  const sorted = [...wellness].sort((a,b) => a.id.localeCompare(b.id));
+  const latest = sorted.length ? sorted[sorted.length - 1] : null;
+
+  const liveSportFtp = Array.isArray(sportSettings)
+    ? (sportSettings.find(s => s.type === 'Ride')?.ftp || sportSettings[0]?.ftp)
+    : sportSettings?.ftp;
+  const liveEftp = getLatestEftp(sorted, 'Ride');
+
+  let currentFtp, ftpSource;
+  if (liveEftp){
+    currentFtp = liveEftp;
+    ftpSource = 'eFTP, estimated from recent efforts';
+  } else if (liveSportFtp){
+    currentFtp = liveSportFtp;
+    ftpSource = 'set FTP from Intervals.icu profile';
+  } else {
+    currentFtp = goals.baseline_ftp;
+    ftpSource = 'baseline — no FTP data synced yet';
+  }
+  const currentWeight = (latest && latest.weight) || goals.baseline_weight;
+
+  window.__lastWellnessSorted = sorted;
+  window.__currentFtp = currentFtp;
+
+  renderFtpWeight(currentFtp, currentWeight, ftpSource);
+  renderPMC(latest?.ctl, latest?.atl);
+  renderSleep(sorted);
+
+  const activitiesSorted = [...activities].sort((a,b) => (b.start_date_local||'').localeCompare(a.start_date_local||''));
+  renderActivities(activitiesSorted);
+}
+
 async function init(){
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
 
@@ -1359,47 +1421,22 @@ async function init(){
     document.getElementById(id).addEventListener('change', saveGoal);
   });
 
-  try {
-    const [wellness, activities, sportSettings] = await Promise.all([
-      icuFetch('wellness', { oldest: isoDate(daysAgo(30)), newest: isoDate(new Date()) }),
-      icuFetch('activities', {
-        oldest: isoDate(daysAgo(14)),
-        newest: isoDate(new Date()),
-        fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts'
-      }),
-      icuFetch('sport-settings'),
-    ]);
-
-    const sorted = [...wellness].sort((a,b) => a.id.localeCompare(b.id));
-    const latest = sorted.length ? sorted[sorted.length - 1] : null;
-
-    const liveSportFtp = Array.isArray(sportSettings)
-      ? (sportSettings.find(s => s.type === 'Ride')?.ftp || sportSettings[0]?.ftp)
-      : sportSettings?.ftp;
-    const liveEftp = getLatestEftp(sorted, 'Ride');
-
-    let currentFtp, ftpSource;
-    if (liveEftp){
-      currentFtp = liveEftp;
-      ftpSource = 'eFTP, estimated from recent efforts';
-    } else if (liveSportFtp){
-      currentFtp = liveSportFtp;
-      ftpSource = 'set FTP from Intervals.icu profile';
-    } else {
-      currentFtp = goals.baseline_ftp;
-      ftpSource = 'baseline — no FTP data synced yet';
+  document.getElementById('refreshActivitiesBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('refreshActivitiesBtn');
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    try {
+      await loadDashboardData();
+      btn.textContent = '✓ Updated';
+    } catch (e){
+      btn.textContent = '↻ Refresh';
+      alert('Could not refresh: ' + e.message);
     }
-    const currentWeight = (latest && latest.weight) || goals.baseline_weight;
+    setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Refresh'; }, 1500);
+  });
 
-    window.__lastWellnessSorted = sorted;
-    window.__currentFtp = currentFtp;
-
-    renderFtpWeight(currentFtp, currentWeight, ftpSource);
-    renderPMC(latest?.ctl, latest?.atl);
-    renderSleep(sorted);
-
-    const activitiesSorted = [...activities].sort((a,b) => (b.start_date_local||'').localeCompare(a.start_date_local||''));
-    renderActivities(activitiesSorted);
+  try {
+    await loadDashboardData();
 
     try {
       await loadWeekPlan();
