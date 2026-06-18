@@ -110,7 +110,22 @@
   .wkg-card .big{font-family:'Space Mono',monospace;font-weight:700;font-size:44px;color:var(--accent);}
   .wkg-card .sub{font-size:13px;color:var(--muted);margin-top:2px;}
 
-  .pmc-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  .subnote{
+    font-size:11px;
+    color:var(--muted);
+    line-height:1.5;
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid var(--line);
+  }
+  .ftp-source{
+    font-size:10px;
+    color:var(--muted);
+    margin-top:2px;
+    font-style:italic;
+  }
+  .sleep-bar .hrs{font-size:9px;color:var(--ink);margin-top:3px;font-family:'Space Mono',monospace;}
+  .sleep-bar .score{font-size:8px;color:var(--muted);margin-top:1px;}
   .pmc-tile{text-align:center;}
   .pmc-tile .label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);}
   .pmc-tile .val{font-family:'Space Mono',monospace;font-size:22px;font-weight:700;margin-top:4px;}
@@ -124,8 +139,8 @@
     margin:22px 0 8px 2px;
   }
 
-  .sleep-bars{display:flex;align-items:flex-end;gap:6px;height:70px;margin-top:10px;}
-  .sleep-bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+  .sleep-bars{display:flex;align-items:flex-end;gap:6px;margin-top:10px;}
+  .sleep-bar{flex:1;display:flex;flex-direction:column;align-items:center;}
   .sleep-bar .fill{width:100%;background:var(--z1);border-radius:4px 4px 0 0;min-height:3px;}
   .sleep-bar .day{font-size:9px;color:var(--muted);margin-top:4px;}
 
@@ -263,6 +278,7 @@
     <div class="card stat-card">
       <div class="label">FTP</div>
       <div class="big mono" id="ftpVal">--</div>
+      <div class="ftp-source" id="ftpSource"></div>
       <div class="goal-line" id="ftpGoalLine">goal --</div>
       <div class="bar-track"><div class="bar-fill" id="ftpBar" style="width:0%"></div></div>
     </div>
@@ -286,6 +302,11 @@
       <div class="pmc-tile"><div class="label">CTL</div><div class="val mono" id="ctlVal">--</div></div>
       <div class="pmc-tile"><div class="label">ATL</div><div class="val mono" id="atlVal">--</div></div>
       <div class="pmc-tile"><div class="label">TSB</div><div class="val mono" id="tsbVal">--</div></div>
+    </div>
+    <div class="subnote">
+      <strong>CTL</strong> (fitness) — your long-term training load, built up over ~6 weeks.
+      <strong>ATL</strong> (fatigue) — your short-term load from the last ~week.
+      <strong>TSB</strong> (form) — CTL minus ATL. Negative means you're carrying fatigue; positive means you're fresh.
     </div>
   </div>
 
@@ -400,8 +421,23 @@ async function loadGoals(){
   document.getElementById('targetDate').value = goals.target_date;
 }
 
-function renderFtpWeight(currentFtp, currentWeight){
+function isRideType(type){
+  return /ride|bike|cycl|gravel|mtb/i.test(type || '');
+}
+
+function getLatestEftp(wellnessSorted, sportType='Ride'){
+  for (let i = wellnessSorted.length - 1; i >= 0; i--){
+    const entry = wellnessSorted[i];
+    if (!entry.sportInfo) continue;
+    const match = entry.sportInfo.find(s => isRideType(s.type) && s.eftp);
+    if (match) return match.eftp;
+  }
+  return null;
+}
+
+function renderFtpWeight(currentFtp, currentWeight, ftpSource){
   document.getElementById('ftpVal').textContent = `${Math.round(currentFtp)}W`;
+  document.getElementById('ftpSource').textContent = ftpSource || '';
   document.getElementById('ftpGoalLine').textContent = `goal ${goals.goal_ftp}W · baseline ${goals.baseline_ftp}W`;
   const ftpRange = goals.goal_ftp - goals.baseline_ftp;
   const ftpProg = ftpRange !== 0 ? clamp((currentFtp - goals.baseline_ftp) / ftpRange * 100, 0, 100) : 0;
@@ -435,13 +471,16 @@ function renderSleep(wellness){
   const container = document.getElementById('sleepBars');
   container.innerHTML = '';
   const maxHrs = 9;
+  const maxPx = 60;
   last7.forEach(w => {
     const hrs = w.sleepSecs ? w.sleepSecs / 3600 : 0;
-    const pct = clamp(hrs / maxHrs * 100, 2, 100);
+    const px = clamp(hrs / maxHrs * maxPx, 3, maxPx);
     const day = new Date(w.id).toLocaleDateString('en-AU', { weekday: 'short' });
+    const hrsLabel = w.sleepSecs ? `${hrs.toFixed(1)}h` : '';
+    const scoreLabel = (w.sleepScore != null) ? `Score ${Math.round(w.sleepScore)}` : '';
     const bar = document.createElement('div');
     bar.className = 'sleep-bar';
-    bar.innerHTML = `<div class="fill" style="height:${pct}%"></div><div class="day">${day}</div>`;
+    bar.innerHTML = `<div class="fill" style="height:${px}px"></div><div class="day">${day}</div><div class="hrs">${hrsLabel}</div><div class="score">${scoreLabel}</div>`;
     container.appendChild(bar);
   });
   if (last7.length === 0){
@@ -476,10 +515,6 @@ function formatDuration(seconds){
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
-}
-
-function isRideType(type){
-  return /ride|bike|cycl|gravel|mtb/i.test(type || '');
 }
 
 function buildStatChips(a){
@@ -591,14 +626,25 @@ async function init(){
     const sorted = [...wellness].sort((a,b) => a.id.localeCompare(b.id));
     const latest = sorted.length ? sorted[sorted.length - 1] : null;
 
-    const liveFtp = Array.isArray(sportSettings)
+    const liveSportFtp = Array.isArray(sportSettings)
       ? (sportSettings.find(s => s.type === 'Ride')?.ftp || sportSettings[0]?.ftp)
       : sportSettings?.ftp;
+    const liveEftp = getLatestEftp(sorted, 'Ride');
 
-    const currentFtp = liveFtp || goals.baseline_ftp;
+    let currentFtp, ftpSource;
+    if (liveEftp){
+      currentFtp = liveEftp;
+      ftpSource = 'eFTP, estimated from recent efforts';
+    } else if (liveSportFtp){
+      currentFtp = liveSportFtp;
+      ftpSource = 'set FTP from Intervals.icu profile';
+    } else {
+      currentFtp = goals.baseline_ftp;
+      ftpSource = 'baseline — no FTP data synced yet';
+    }
     const currentWeight = (latest && latest.weight) || goals.baseline_weight;
 
-    renderFtpWeight(currentFtp, currentWeight);
+    renderFtpWeight(currentFtp, currentWeight, ftpSource);
     renderPMC(latest?.ctl, latest?.atl);
     renderSleep(sorted);
 
@@ -607,7 +653,7 @@ async function init(){
 
   } catch (e){
     showError(e.message);
-    renderFtpWeight(goals.baseline_ftp, goals.baseline_weight);
+    renderFtpWeight(goals.baseline_ftp, goals.baseline_weight, 'baseline — live data failed to load');
   }
 }
 
