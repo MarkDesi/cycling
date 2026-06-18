@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#33474A">
+<title>Project 270</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#F6F4EF;
+    --card:#FFFFFF;
+    --ink:#2B2A28;
+    --muted:#8B8680;
+    --line:#E6E1D6;
+    --accent:#33474A;
+    --accent-soft:#DCE6E4;
+    --z1:#9DBEDB;
+    --z2:#8FB996;
+    --z3:#E3C66B;
+    --z4:#E0935C;
+    --z5:#D17575;
+    --good:#6E9B7B;
+    --warn:#C9785C;
+    --radius:14px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Inter',sans-serif;
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:60px;
+  }
+  .mono{font-family:'Space Mono',monospace;}
+  .wrap{max-width:680px;margin:0 auto;padding:20px 16px 80px;}
+
+  header.top{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:18px;
+  }
+  header.top .word{
+    font-family:'Space Mono',monospace;
+    font-weight:700;
+    font-size:15px;
+    letter-spacing:0.06em;
+    color:var(--accent);
+  }
+  header.top .date{
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px;
+    margin-bottom:14px;
+  }
+
+  .hero{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:12px;
+    margin-bottom:14px;
+  }
+  .stat-card .label{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--muted);
+    margin-bottom:6px;
+  }
+  .stat-card .big{
+    font-family:'Space Mono',monospace;
+    font-weight:700;
+    font-size:30px;
+    line-height:1;
+  }
+  .stat-card .goal-line{
+    font-size:12px;
+    color:var(--muted);
+    margin-top:4px;
+  }
+  .bar-track{
+    height:6px;
+    border-radius:4px;
+    background:var(--accent-soft);
+    margin-top:10px;
+    overflow:hidden;
+  }
+  .bar-fill{
+    height:100%;
+    background:var(--accent);
+    border-radius:4px;
+    transition:width .4s ease;
+  }
+
+  .wkg-card{
+    text-align:center;
+    padding:22px 18px;
+  }
+  .wkg-card .label{font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--muted);}
+  .wkg-card .big{font-family:'Space Mono',monospace;font-weight:700;font-size:44px;color:var(--accent);}
+  .wkg-card .sub{font-size:13px;color:var(--muted);margin-top:2px;}
+
+  .pmc-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+  .pmc-tile{text-align:center;}
+  .pmc-tile .label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);}
+  .pmc-tile .val{font-family:'Space Mono',monospace;font-size:22px;font-weight:700;margin-top:4px;}
+
+  .section-title{
+    font-size:13px;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    color:var(--muted);
+    margin:22px 0 8px 2px;
+  }
+
+  .sleep-bars{display:flex;align-items:flex-end;gap:6px;height:70px;margin-top:10px;}
+  .sleep-bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;}
+  .sleep-bar .fill{width:100%;background:var(--z1);border-radius:4px 4px 0 0;min-height:3px;}
+  .sleep-bar .day{font-size:9px;color:var(--muted);margin-top:4px;}
+
+  .avail-row{display:flex;gap:12px;}
+  .avail-field{flex:1;}
+  .avail-field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;}
+  .avail-field input{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:8px 10px;
+    font-family:'Space Mono',monospace;
+    font-size:15px;
+    background:var(--paper);
+    color:var(--ink);
+  }
+
+  .activity{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:10px 0;
+    border-bottom:1px solid var(--line);
+    gap:10px;
+  }
+  .activity:last-child{border-bottom:none;}
+  .activity .meta{flex:1;min-width:0;}
+  .activity .name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .activity .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+  .rpe-row{display:flex;gap:3px;}
+  .rpe-btn{
+    width:22px;height:22px;
+    border-radius:5px;
+    border:1px solid var(--line);
+    background:var(--paper);
+    font-family:'Space Mono',monospace;
+    font-size:10px;
+    color:var(--muted);
+    cursor:pointer;
+  }
+  .rpe-btn:hover{border-color:var(--accent);}
+  .rpe-logged{
+    font-family:'Space Mono',monospace;
+    font-size:18px;
+    font-weight:700;
+    padding:4px 10px;
+    border-radius:8px;
+    color:white;
+  }
+
+  .goal-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  .goal-form .full{grid-column:1/-1;}
+  .goal-form label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;}
+  .goal-form input{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:8px 10px;
+    font-family:'Space Mono',monospace;
+    font-size:14px;
+    background:var(--paper);
+    color:var(--ink);
+  }
+  .saved-flash{
+    font-size:11px;
+    color:var(--good);
+    margin-top:6px;
+    height:14px;
+    opacity:0;
+    transition:opacity .3s;
+  }
+  .saved-flash.show{opacity:1;}
+
+  .banner{
+    background:#FBEFE9;
+    border:1px solid var(--warn);
+    color:#8C4A33;
+    border-radius:10px;
+    padding:12px 14px;
+    font-size:13px;
+    margin-bottom:14px;
+  }
+  .skeleton{
+    background:linear-gradient(90deg,var(--line) 25%,#f0ede4 37%,var(--line) 63%);
+    background-size:400% 100%;
+    animation:shimmer 1.4s ease infinite;
+    border-radius:8px;
+    height:30px;
+  }
+  @keyframes shimmer{0%{background-position:100% 50%}100%{background-position:0 50%}}
+
+  details.goal-toggle summary{
+    cursor:pointer;
+    font-size:13px;
+    color:var(--accent);
+    font-weight:600;
+    list-style:none;
+  }
+  details.goal-toggle summary::-webkit-details-marker{display:none;}
+  details.goal-toggle{margin-top:16px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="word">PROJECT 270</div>
+    <div class="date mono" id="todayLabel"></div>
+  </header>
+
+  <div id="errorBanner"></div>
+
+  <!-- Hero: FTP + Weight -->
+  <div class="hero">
+    <div class="card stat-card">
+      <div class="label">FTP</div>
+      <div class="big mono" id="ftpVal">--</div>
+      <div class="goal-line" id="ftpGoalLine">goal --</div>
+      <div class="bar-track"><div class="bar-fill" id="ftpBar" style="width:0%"></div></div>
+    </div>
+    <div class="card stat-card">
+      <div class="label">Weight</div>
+      <div class="big mono" id="weightVal">--</div>
+      <div class="goal-line" id="weightGoalLine">goal --</div>
+      <div class="bar-track"><div class="bar-fill" id="weightBar" style="width:0%"></div></div>
+    </div>
+  </div>
+
+  <div class="card wkg-card">
+    <div class="label">W / KG</div>
+    <div class="big mono" id="wkgVal">--</div>
+    <div class="sub" id="wkgGoalLine">target --</div>
+  </div>
+
+  <div class="section-title">Fitness</div>
+  <div class="card">
+    <div class="pmc-row">
+      <div class="pmc-tile"><div class="label">CTL</div><div class="val mono" id="ctlVal">--</div></div>
+      <div class="pmc-tile"><div class="label">ATL</div><div class="val mono" id="atlVal">--</div></div>
+      <div class="pmc-tile"><div class="label">TSB</div><div class="val mono" id="tsbVal">--</div></div>
+    </div>
+  </div>
+
+  <div class="section-title">Sleep · last 7 days</div>
+  <div class="card">
+    <div class="sleep-bars" id="sleepBars"></div>
+  </div>
+
+  <div class="section-title">This week's availability</div>
+  <div class="card">
+    <div class="avail-row">
+      <div class="avail-field">
+        <label>Days / week</label>
+        <input type="number" id="daysInput" min="1" max="7" step="1">
+      </div>
+      <div class="avail-field">
+        <label>Hours / week</label>
+        <input type="number" id="hoursInput" min="1" max="30" step="0.5">
+      </div>
+    </div>
+    <div class="saved-flash" id="availSaved">Saved</div>
+  </div>
+
+  <div class="section-title">Recent activities</div>
+  <div class="card" id="activitiesCard">
+    <div class="skeleton"></div>
+  </div>
+
+  <details class="goal-toggle">
+    <summary>Edit goal &amp; baseline →</summary>
+    <div class="card" style="margin-top:10px;">
+      <div class="goal-form">
+        <div>
+          <label>Baseline FTP (W)</label>
+          <input type="number" id="baselineFtp" step="1">
+        </div>
+        <div>
+          <label>Baseline weight (kg)</label>
+          <input type="number" id="baselineWeight" step="0.1">
+        </div>
+        <div>
+          <label>Goal FTP (W)</label>
+          <input type="number" id="goalFtp" step="1">
+        </div>
+        <div>
+          <label>Goal weight (kg)</label>
+          <input type="number" id="goalWeight" step="0.1">
+        </div>
+        <div class="full">
+          <label>Target date</label>
+          <input type="date" id="targetDate">
+        </div>
+      </div>
+      <div class="saved-flash" id="goalSaved">Saved</div>
+    </div>
+  </details>
+
+</div>
+
+<script>
+// ---------------------------------------------------------------
+// CONFIG — fill these in after you create the Supabase project
+// ---------------------------------------------------------------
+const CONFIG = {
+  SUPABASE_URL: 'https://uictdfglyuvenoqcibsb.supabase.co',       // e.g. https://abcxyz.supabase.co
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I',
+};
+// ---------------------------------------------------------------
+
+const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const FN_BASE = `${CONFIG.SUPABASE_URL}/functions/v1/intervals-proxy`;
+
+const ZONE_COLORS = ['#9DBEDB','#9DBEDB','#8FB996','#8FB996','#E3C66B','#E0935C','#D17575','#D17575','#D17575','#D17575'];
+
+function isoDate(d){ return d.toISOString().slice(0,10); }
+function daysAgo(n){ const d = new Date(); d.setDate(d.getDate()-n); return d; }
+function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+function flash(el){ el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 1200); }
+
+async function icuFetch(route, params={}){
+  const qs = new URLSearchParams(params).toString();
+  const res = await fetch(`${FN_BASE}/${route}${qs ? '?' + qs : ''}`, {
+    headers: {
+      'apikey': CONFIG.SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
+    }
+  });
+  if(!res.ok){
+    const body = await res.text().catch(()=> '');
+    throw new Error(`${route} → ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+function showError(msg){
+  const el = document.getElementById('errorBanner');
+  el.innerHTML = `<div class="banner">Couldn't load live data: ${msg}. Check that the Edge Function is deployed and ICU_API_KEY / ICU_ATHLETE_ID secrets are set, and that SUPABASE_URL / SUPABASE_ANON_KEY are filled in at the top of this file.</div>`;
+}
+
+let goals = null;
+
+async function loadGoals(){
+  const { data, error } = await sb.from('goals').select('*').eq('id', 1).single();
+  if (error) throw error;
+  goals = data;
+  document.getElementById('daysInput').value = goals.days_per_week;
+  document.getElementById('hoursInput').value = goals.hours_per_week;
+  document.getElementById('baselineFtp').value = goals.baseline_ftp;
+  document.getElementById('baselineWeight').value = goals.baseline_weight;
+  document.getElementById('goalFtp').value = goals.goal_ftp;
+  document.getElementById('goalWeight').value = goals.goal_weight;
+  document.getElementById('targetDate').value = goals.target_date;
+}
+
+function renderFtpWeight(currentFtp, currentWeight){
+  document.getElementById('ftpVal').textContent = `${Math.round(currentFtp)}W`;
+  document.getElementById('ftpGoalLine').textContent = `goal ${goals.goal_ftp}W · baseline ${goals.baseline_ftp}W`;
+  const ftpRange = goals.goal_ftp - goals.baseline_ftp;
+  const ftpProg = ftpRange !== 0 ? clamp((currentFtp - goals.baseline_ftp) / ftpRange * 100, 0, 100) : 0;
+  document.getElementById('ftpBar').style.width = `${ftpProg}%`;
+
+  document.getElementById('weightVal').textContent = `${currentWeight.toFixed(1)}kg`;
+  document.getElementById('weightGoalLine').textContent = `goal ${goals.goal_weight}kg · baseline ${goals.baseline_weight}kg`;
+  const wRange = goals.baseline_weight - goals.goal_weight;
+  const wProg = wRange !== 0 ? clamp((goals.baseline_weight - currentWeight) / wRange * 100, 0, 100) : 0;
+  document.getElementById('weightBar').style.width = `${wProg}%`;
+
+  const wkg = currentFtp / currentWeight;
+  const goalWkg = goals.goal_ftp / goals.goal_weight;
+  document.getElementById('wkgVal').textContent = wkg.toFixed(2);
+  document.getElementById('wkgGoalLine').textContent = `target ${goalWkg.toFixed(2)} by ${goals.target_date}`;
+}
+
+function renderPMC(ctl, atl){
+  document.getElementById('ctlVal').textContent = ctl != null ? Math.round(ctl) : '--';
+  document.getElementById('atlVal').textContent = atl != null ? Math.round(atl) : '--';
+  if (ctl != null && atl != null){
+    const tsb = (ctl - atl).toFixed(1);
+    const tsbEl = document.getElementById('tsbVal');
+    tsbEl.textContent = tsb;
+    tsbEl.style.color = tsb < -10 ? 'var(--warn)' : (tsb > 5 ? 'var(--good)' : 'var(--ink)');
+  }
+}
+
+function renderSleep(wellness){
+  const last7 = wellness.slice(-7);
+  const container = document.getElementById('sleepBars');
+  container.innerHTML = '';
+  const maxHrs = 9;
+  last7.forEach(w => {
+    const hrs = w.sleepSecs ? w.sleepSecs / 3600 : 0;
+    const pct = clamp(hrs / maxHrs * 100, 2, 100);
+    const day = new Date(w.id).toLocaleDateString('en-AU', { weekday: 'short' });
+    const bar = document.createElement('div');
+    bar.className = 'sleep-bar';
+    bar.innerHTML = `<div class="fill" style="height:${pct}%"></div><div class="day">${day}</div>`;
+    container.appendChild(bar);
+  });
+  if (last7.length === 0){
+    container.innerHTML = '<div style="font-size:12px;color:var(--muted);">No sleep data synced yet — connect a wellness source (e.g. Garmin) in Intervals.icu.</div>';
+  }
+}
+
+async function loggedRpeMap(activityIds){
+  if (activityIds.length === 0) return {};
+  const { data, error } = await sb.from('rpe_logs').select('activity_id, rpe').in('activity_id', activityIds);
+  if (error) throw error;
+  const map = {};
+  data.forEach(r => map[r.activity_id] = r.rpe);
+  return map;
+}
+
+async function logRpe(activity, rpe){
+  const { error } = await sb.from('rpe_logs').upsert({
+    activity_id: activity.id,
+    activity_name: activity.name,
+    activity_date: (activity.start_date_local || '').slice(0,10),
+    rpe,
+  }, { onConflict: 'activity_id' });
+  if (error) { alert('Could not save RPE: ' + error.message); return; }
+  renderActivities(window.__lastActivities);
+}
+
+function renderActivities(activities){
+  window.__lastActivities = activities;
+  const card = document.getElementById('activitiesCard');
+  if (!activities || activities.length === 0){
+    card.innerHTML = '<div style="font-size:13px;color:var(--muted);">No activities in the last 14 days yet.</div>';
+    return;
+  }
+  loggedRpeMap(activities.map(a => a.id)).then(rpeMap => {
+    card.innerHTML = '';
+    activities.forEach(a => {
+      const row = document.createElement('div');
+      row.className = 'activity';
+      const date = (a.start_date_local || '').slice(0,10);
+      const dur = a.moving_time ? Math.round(a.moving_time/60) : null;
+      const logged = rpeMap[a.id];
+      let rpeHtml;
+      if (logged){
+        rpeHtml = `<div class="rpe-logged" style="background:${ZONE_COLORS[logged-1] || 'var(--accent)'}">${logged}</div>`;
+      } else {
+        let btns = '';
+        for (let i=1;i<=10;i++){
+          btns += `<button class="rpe-btn" data-id="${a.id}" data-rpe="${i}">${i}</button>`;
+        }
+        rpeHtml = `<div class="rpe-row">${btns}</div>`;
+      }
+      row.innerHTML = `
+        <div class="meta">
+          <div class="name">${a.name || a.type}</div>
+          <div class="sub">${date}${dur ? ' · ' + dur + 'min' : ''}</div>
+        </div>
+        ${rpeHtml}
+      `;
+      card.appendChild(row);
+    });
+    card.querySelectorAll('.rpe-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const activity = activities.find(a => a.id === btn.dataset.id);
+        logRpe(activity, parseInt(btn.dataset.rpe, 10));
+      });
+    });
+  });
+}
+
+async function init(){
+  document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
+
+  if (CONFIG.SUPABASE_URL === 'YOUR_SUPABASE_URL'){
+    showError('SUPABASE_URL / SUPABASE_ANON_KEY not filled in yet');
+    return;
+  }
+
+  try {
+    await loadGoals();
+  } catch (e){
+    showError('could not read goals table — did you run schema.sql? (' + e.message + ')');
+    return;
+  }
+
+  // Wire up blur-to-save for availability + goal fields
+  ['daysInput','hoursInput'].forEach(id => {
+    document.getElementById(id).addEventListener('change', saveAvailability);
+  });
+  ['baselineFtp','baselineWeight','goalFtp','goalWeight','targetDate'].forEach(id => {
+    document.getElementById(id).addEventListener('change', saveGoal);
+  });
+
+  try {
+    const [wellness, activities, sportSettings] = await Promise.all([
+      icuFetch('wellness', { oldest: isoDate(daysAgo(30)), newest: isoDate(new Date()) }),
+      icuFetch('activities', { oldest: isoDate(daysAgo(14)), newest: isoDate(new Date()) }),
+      icuFetch('sport-settings'),
+    ]);
+
+    const sorted = [...wellness].sort((a,b) => a.id.localeCompare(b.id));
+    const latest = sorted.length ? sorted[sorted.length - 1] : null;
+
+    const liveFtp = Array.isArray(sportSettings)
+      ? (sportSettings.find(s => s.type === 'Ride')?.ftp || sportSettings[0]?.ftp)
+      : sportSettings?.ftp;
+
+    const currentFtp = liveFtp || goals.baseline_ftp;
+    const currentWeight = (latest && latest.weight) || goals.baseline_weight;
+
+    renderFtpWeight(currentFtp, currentWeight);
+    renderPMC(latest?.ctl, latest?.atl);
+    renderSleep(sorted);
+
+    const activitiesSorted = [...activities].sort((a,b) => (b.start_date_local||'').localeCompare(a.start_date_local||''));
+    renderActivities(activitiesSorted);
+
+  } catch (e){
+    showError(e.message);
+    renderFtpWeight(goals.baseline_ftp, goals.baseline_weight);
+  }
+}
+
+async function saveAvailability(){
+  const days = parseInt(document.getElementById('daysInput').value, 10);
+  const hours = parseFloat(document.getElementById('hoursInput').value);
+  const { error } = await sb.from('goals').update({ days_per_week: days, hours_per_week: hours, updated_at: new Date().toISOString() }).eq('id', 1);
+  if (!error) flash(document.getElementById('availSaved'));
+}
+
+async function saveGoal(){
+  const payload = {
+    baseline_ftp: parseFloat(document.getElementById('baselineFtp').value),
+    baseline_weight: parseFloat(document.getElementById('baselineWeight').value),
+    goal_ftp: parseFloat(document.getElementById('goalFtp').value),
+    goal_weight: parseFloat(document.getElementById('goalWeight').value),
+    target_date: document.getElementById('targetDate').value,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from('goals').update(payload).eq('id', 1);
+  if (!error){
+    goals = { ...goals, ...payload };
+    flash(document.getElementById('goalSaved'));
+    init();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
