@@ -325,6 +325,33 @@
   .btn-primary{background:var(--accent);color:white;}
   .btn-secondary{background:var(--accent-soft);color:var(--accent);}
   .btn:disabled{opacity:0.5;cursor:default;}
+
+  .tabs{
+    display:flex;
+    gap:8px;
+    margin-bottom:18px;
+  }
+  .tab-btn{
+    flex:1;
+    border:1px solid var(--line);
+    background:var(--card);
+    color:var(--muted);
+    font-family:'Space Mono',monospace;
+    font-size:12px;
+    font-weight:700;
+    letter-spacing:0.04em;
+    text-transform:uppercase;
+    padding:10px;
+    border-radius:10px;
+    cursor:pointer;
+  }
+  .tab-btn.active{
+    background:var(--accent);
+    color:white;
+    border-color:var(--accent);
+  }
+  .view{display:none;}
+  .view.active{display:block;}
 </style>
 </head>
 <body>
@@ -336,6 +363,13 @@
   </header>
 
   <div id="errorBanner"></div>
+
+  <div class="tabs">
+    <button class="tab-btn active" id="tabBtnPlan">Plan</button>
+    <button class="tab-btn" id="tabBtnActivities">Activities</button>
+  </div>
+
+  <div class="view active" id="view-plan">
 
   <!-- Hero: FTP + Weight -->
   <div class="hero">
@@ -394,11 +428,6 @@
     <div class="saved-flash" id="availSaved">Saved</div>
   </div>
 
-  <div class="section-title">Recent activities</div>
-  <div class="card" id="activitiesCard">
-    <div class="skeleton"></div>
-  </div>
-
   <div class="section-title">This week's plan</div>
   <div class="card" id="planCard">
     <div class="skeleton"></div>
@@ -433,6 +462,17 @@
     </div>
   </details>
 
+  </div>
+
+  <div class="view" id="view-activities">
+
+  <div class="section-title">Recent activities</div>
+  <div class="card" id="activitiesCard">
+    <div class="skeleton"></div>
+  </div>
+
+  </div>
+
 </div>
 
 <script>
@@ -440,8 +480,8 @@
 // CONFIG — fill these in after you create the Supabase project
 // ---------------------------------------------------------------
 const CONFIG = {
-  SUPABASE_URL: 'https://uictdfglyuvenoqcibsb.supabase.co',       // e.g. https://abcxyz.supabase.co
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I',
+  SUPABASE_URL: 'YOUR_SUPABASE_URL',       // e.g. https://abcxyz.supabase.co
+  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
 };
 // ---------------------------------------------------------------
 
@@ -688,6 +728,7 @@ async function computeSignals(wellnessSorted){
   const latest = wellnessSorted[wellnessSorted.length - 1];
   const ctl = latest?.ctl, atl = latest?.atl;
   const tsb = (ctl != null && atl != null) ? (ctl - atl) : null;
+  const rampRate = (latest?.rampRate != null) ? latest.rampRate : null;
 
   const last7 = wellnessSorted.slice(-7);
   const sleepVals = last7.filter(w => w.sleepSecs).map(w => w.sleepSecs / 3600);
@@ -702,7 +743,7 @@ async function computeSignals(wellnessSorted){
     }
   } catch(e){ /* non-fatal — proceed without RPE signal */ }
 
-  return { tsb, avgSleepHrs, recentRpeAvg };
+  return { tsb, avgSleepHrs, recentRpeAvg, rampRate };
 }
 
 function decideMode(signals, goalsCfg, currentFtp){
@@ -721,12 +762,17 @@ function decideMode(signals, goalsCfg, currentFtp){
     mode = 'recovery';
     reasons.push(`Average sleep has been ${signals.avgSleepHrs.toFixed(1)}h, below where recovery happens well.`);
   }
+  if (signals.rampRate != null && signals.rampRate > 5){
+    mode = 'recovery';
+    reasons.push(`CTL has been climbing at ${signals.rampRate.toFixed(1)} points/week — faster than the ~5/week guideline before overtraining risk rises.`);
+  }
 
   if (mode !== 'recovery'){
     const weeksRemaining = Math.max(1, (new Date(goalsCfg.target_date) - new Date()) / (7*24*3600*1000));
     const ftpGap = goalsCfg.goal_ftp - currentFtp;
     const neededWeeklyGain = ftpGap / weeksRemaining;
-    if (signals.tsb != null && signals.tsb > -5 && (signals.recentRpeAvg == null || signals.recentRpeAvg < 6) && neededWeeklyGain > 0.4){
+    const rampHasRoom = (signals.rampRate == null || signals.rampRate < 4);
+    if (signals.tsb != null && signals.tsb > -5 && (signals.recentRpeAvg == null || signals.recentRpeAvg < 6) && rampHasRoom && neededWeeklyGain > 0.4){
       mode = 'progress';
       reasons.push(`You're recovered (TSB ${signals.tsb.toFixed(1)}) with ${Math.round(ftpGap)}W still to find by ${goalsCfg.target_date}, so this week nudges intensity slightly.`);
     } else {
@@ -742,8 +788,8 @@ function enduranceDesc(ftp, easy){
 }
 function intervalDesc(ftp, harder){
   const reps = harder ? 4 : 3;
-  const low = Math.round(ftp*0.95), high = Math.round(ftp*1.0);
-  return `Warm up 15min easy. ${reps} x 10min @ ${low}-${high}W, 5min easy recovery between efforts. Cool down 10min.`;
+  const low = Math.round(ftp*0.88), high = Math.round(ftp*0.94);
+  return `Warm up 15min easy. ${reps} x 12min @ ${low}-${high}W (sweet spot), 4min easy recovery between efforts. Cool down 10min.`;
 }
 
 function buildSessions(mode, goalsCfg, currentFtp){
@@ -757,14 +803,20 @@ function buildSessions(mode, goalsCfg, currentFtp){
   const longDur = Math.round(weekMin * 0.35);
   sessions.push({ type:'Ride', name:'Long endurance', duration: longDur, description: enduranceDesc(currentFtp, false) });
 
-  if (mode !== 'recovery' && days >= 2){
-    const intDur = Math.round(weekMin * 0.22);
-    sessions.push({
-      type:'Ride',
-      name: mode === 'progress' ? 'Threshold intervals (progression)' : 'Threshold intervals',
-      duration: intDur,
-      description: intervalDesc(currentFtp, mode === 'progress'),
-    });
+  if (mode !== 'recovery'){
+    const qualityCount = (days >= 4) ? 2 : 1;
+    const eachQualityDur = Math.round(weekMin * (qualityCount === 2 ? 0.18 : 0.22));
+    for (let q=0; q<qualityCount; q++){
+      let name = 'Sweet spot intervals';
+      if (qualityCount > 1) name += ` ${q+1}`;
+      if (mode === 'progress') name += ' (progression)';
+      sessions.push({
+        type:'Ride',
+        name,
+        duration: eachQualityDur,
+        description: intervalDesc(currentFtp, mode === 'progress'),
+      });
+    }
   }
 
   const remaining = Math.max(0, days - sessions.length);
@@ -778,13 +830,25 @@ function buildSessions(mode, goalsCfg, currentFtp){
   return sessions;
 }
 
+function distributeSessionIndices(n, totalDays){
+  if (n <= 0) return [];
+  if (n === 1) return [Math.floor(totalDays / 2)];
+  const indices = [];
+  for (let i=0; i<n; i++){
+    indices.push(Math.round(i * (totalDays - 1) / (n - 1)));
+  }
+  return indices;
+}
+
 function generateProposedRows(mode, goalsCfg, currentFtp){
   const sessions = buildSessions(mode, goalsCfg, currentFtp);
+  const placeAt = distributeSessionIndices(sessions.length, 7);
   const rows = [];
   for (let i=0; i<7; i++){
     const date = isoDate(daysFromNow(i+1));
-    if (i < sessions.length){
-      rows.push({ date, ...sessions[i], id:null, external_id:null });
+    const sessionIdx = placeAt.indexOf(i);
+    if (sessionIdx !== -1){
+      rows.push({ date, ...sessions[sessionIdx], id:null, external_id:null });
     } else {
       rows.push({ date, type:'Rest', name:'Rest day', duration:0, description:'', id:null, external_id:null });
     }
@@ -1075,6 +1139,15 @@ async function saveGoal(){
     init();
   }
 }
+
+function setView(name){
+  document.getElementById('view-plan').classList.toggle('active', name === 'plan');
+  document.getElementById('view-activities').classList.toggle('active', name === 'activities');
+  document.getElementById('tabBtnPlan').classList.toggle('active', name === 'plan');
+  document.getElementById('tabBtnActivities').classList.toggle('active', name === 'activities');
+}
+document.getElementById('tabBtnPlan').addEventListener('click', () => setView('plan'));
+document.getElementById('tabBtnActivities').addEventListener('click', () => setView('activities'));
 
 init();
 </script>
