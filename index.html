@@ -261,6 +261,70 @@
   }
   details.goal-toggle summary::-webkit-details-marker{display:none;}
   details.goal-toggle{margin-top:16px;}
+
+  .plan-reasoning{
+    font-size:12px;
+    color:var(--muted);
+    line-height:1.5;
+    background:var(--accent-soft);
+    border-radius:8px;
+    padding:10px 12px;
+    margin-bottom:12px;
+  }
+  .plan-row{
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:10px 12px;
+    margin-bottom:8px;
+  }
+  .plan-row-top{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-bottom:8px;
+  }
+  .plan-date{
+    font-family:'Space Mono',monospace;
+    font-size:12px;
+    font-weight:700;
+    color:var(--accent);
+  }
+  .plan-remove{
+    background:none;
+    border:none;
+    color:var(--warn);
+    font-size:12px;
+    cursor:pointer;
+    padding:2px 6px;
+  }
+  .plan-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .plan-fields .full{grid-column:1/-1;}
+  .plan-fields label{display:block;font-size:10px;color:var(--muted);margin-bottom:3px;}
+  .plan-fields input,.plan-fields select,.plan-fields textarea{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:6px 8px;
+    font-family:'Inter',sans-serif;
+    font-size:13px;
+    background:var(--paper);
+    color:var(--ink);
+    resize:vertical;
+  }
+  .plan-fields textarea{font-size:12px;min-height:40px;}
+  .plan-actions{display:flex;gap:10px;margin-top:14px;}
+  .btn{
+    border:none;
+    border-radius:8px;
+    padding:10px 16px;
+    font-family:'Inter',sans-serif;
+    font-weight:600;
+    font-size:13px;
+    cursor:pointer;
+  }
+  .btn-primary{background:var(--accent);color:white;}
+  .btn-secondary{background:var(--accent-soft);color:var(--accent);}
+  .btn:disabled{opacity:0.5;cursor:default;}
 </style>
 </head>
 <body>
@@ -335,6 +399,11 @@
     <div class="skeleton"></div>
   </div>
 
+  <div class="section-title">This week's plan</div>
+  <div class="card" id="planCard">
+    <div class="skeleton"></div>
+  </div>
+
   <details class="goal-toggle">
     <summary>Edit goal &amp; baseline →</summary>
     <div class="card" style="margin-top:10px;">
@@ -371,8 +440,8 @@
 // CONFIG — fill these in after you create the Supabase project
 // ---------------------------------------------------------------
 const CONFIG = {
-  SUPABASE_URL: 'https://uictdfglyuvenoqcibsb.supabase.co',       // e.g. https://abcxyz.supabase.co
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I',
+  SUPABASE_URL: 'YOUR_SUPABASE_URL',       // e.g. https://abcxyz.supabase.co
+  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
 };
 // ---------------------------------------------------------------
 
@@ -383,6 +452,7 @@ const ZONE_COLORS = ['#9DBEDB','#9DBEDB','#8FB996','#8FB996','#E3C66B','#E0935C'
 
 function isoDate(d){ return d.toISOString().slice(0,10); }
 function daysAgo(n){ const d = new Date(); d.setDate(d.getDate()-n); return d; }
+function daysFromNow(n){ const d = new Date(); d.setDate(d.getDate()+n); return d; }
 function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
 function flash(el){ el.classList.add('show'); setTimeout(()=>el.classList.remove('show'), 1200); }
 
@@ -589,6 +659,322 @@ function renderActivities(activities){
   });
 }
 
+// -----------------------------------------------------------------
+// Weekly plan engine — pass 2
+// Recovery signals (TSB, RPE, sleep) lead; the FTP/weight goal only
+// nudges the ramp rate when recovery already looks fine.
+// -----------------------------------------------------------------
+
+async function icuWrite(route, method, body){
+  const qs = method === 'POST' ? '?upsertOnUid=true' : '';
+  const res = await fetch(`${FN_BASE}/${route}${qs}`, {
+    method,
+    headers: {
+      'apikey': CONFIG.SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok){
+    const t = await res.text().catch(()=> '');
+    throw new Error(`${method} ${route} → ${res.status}: ${t}`);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
+}
+
+async function computeSignals(wellnessSorted){
+  const latest = wellnessSorted[wellnessSorted.length - 1];
+  const ctl = latest?.ctl, atl = latest?.atl;
+  const tsb = (ctl != null && atl != null) ? (ctl - atl) : null;
+
+  const last7 = wellnessSorted.slice(-7);
+  const sleepVals = last7.filter(w => w.sleepSecs).map(w => w.sleepSecs / 3600);
+  const avgSleepHrs = sleepVals.length ? sleepVals.reduce((a,b)=>a+b,0) / sleepVals.length : null;
+
+  const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  let recentRpeAvg = null;
+  try {
+    const { data: recentRpes } = await sb.from('rpe_logs').select('rpe').gte('logged_at', sevenDaysAgo.toISOString());
+    if (recentRpes && recentRpes.length){
+      recentRpeAvg = recentRpes.reduce((a,r) => a + r.rpe, 0) / recentRpes.length;
+    }
+  } catch(e){ /* non-fatal — proceed without RPE signal */ }
+
+  return { tsb, avgSleepHrs, recentRpeAvg };
+}
+
+function decideMode(signals, goalsCfg, currentFtp){
+  const reasons = [];
+  let mode = 'maintain';
+
+  if (signals.tsb != null && signals.tsb < -20){
+    mode = 'recovery';
+    reasons.push(`TSB is ${signals.tsb.toFixed(1)}, showing real accumulated fatigue.`);
+  }
+  if (signals.recentRpeAvg != null && signals.recentRpeAvg >= 7.5){
+    mode = 'recovery';
+    reasons.push(`Logged RPE has averaged ${signals.recentRpeAvg.toFixed(1)}/10 over the last week.`);
+  }
+  if (signals.avgSleepHrs != null && signals.avgSleepHrs < 6.5){
+    mode = 'recovery';
+    reasons.push(`Average sleep has been ${signals.avgSleepHrs.toFixed(1)}h, below where recovery happens well.`);
+  }
+
+  if (mode !== 'recovery'){
+    const weeksRemaining = Math.max(1, (new Date(goalsCfg.target_date) - new Date()) / (7*24*3600*1000));
+    const ftpGap = goalsCfg.goal_ftp - currentFtp;
+    const neededWeeklyGain = ftpGap / weeksRemaining;
+    if (signals.tsb != null && signals.tsb > -5 && (signals.recentRpeAvg == null || signals.recentRpeAvg < 6) && neededWeeklyGain > 0.4){
+      mode = 'progress';
+      reasons.push(`You're recovered (TSB ${signals.tsb.toFixed(1)}) with ${Math.round(ftpGap)}W still to find by ${goalsCfg.target_date}, so this week nudges intensity slightly.`);
+    } else {
+      reasons.push(`Recovery signals look fine — holding steady volume this week rather than pushing.`);
+    }
+  }
+  return { mode, reasoning: reasons.join(' ') };
+}
+
+function enduranceDesc(ftp, easy){
+  const low = Math.round(ftp*0.6), high = Math.round(ftp*0.75);
+  return `${easy ? 'Easy' : 'Steady'} Zone 2, conversational pace. Target ${low}-${high}W.`;
+}
+function intervalDesc(ftp, harder){
+  const reps = harder ? 4 : 3;
+  const low = Math.round(ftp*0.95), high = Math.round(ftp*1.0);
+  return `Warm up 15min easy. ${reps} x 10min @ ${low}-${high}W, 5min easy recovery between efforts. Cool down 10min.`;
+}
+
+function buildSessions(mode, goalsCfg, currentFtp){
+  const totalMin = Math.round(goalsCfg.hours_per_week * 60);
+  let days = goalsCfg.days_per_week;
+  let weekMin = totalMin;
+  if (mode === 'recovery'){ weekMin = Math.round(totalMin * 0.7); days = Math.max(2, days - 1); }
+  if (mode === 'progress'){ weekMin = Math.round(Math.min(totalMin * 1.1, totalMin + 60)); }
+
+  const sessions = [];
+  const longDur = Math.round(weekMin * 0.35);
+  sessions.push({ type:'Ride', name:'Long endurance', duration: longDur, description: enduranceDesc(currentFtp, false) });
+
+  if (mode !== 'recovery' && days >= 2){
+    const intDur = Math.round(weekMin * 0.22);
+    sessions.push({
+      type:'Ride',
+      name: mode === 'progress' ? 'Threshold intervals (progression)' : 'Threshold intervals',
+      duration: intDur,
+      description: intervalDesc(currentFtp, mode === 'progress'),
+    });
+  }
+
+  const remaining = Math.max(0, days - sessions.length);
+  if (remaining > 0){
+    const usedMin = sessions.reduce((s,x) => s + x.duration, 0);
+    const each = Math.max(20, Math.round((weekMin - usedMin) / remaining));
+    for (let i=0; i<remaining; i++){
+      sessions.push({ type:'Ride', name:'Easy endurance', duration: each, description: enduranceDesc(currentFtp, true) });
+    }
+  }
+  return sessions;
+}
+
+function generateProposedRows(mode, goalsCfg, currentFtp){
+  const sessions = buildSessions(mode, goalsCfg, currentFtp);
+  const rows = [];
+  for (let i=0; i<7; i++){
+    const date = isoDate(daysFromNow(i+1));
+    if (i < sessions.length){
+      rows.push({ date, ...sessions[i], id:null, external_id:null });
+    } else {
+      rows.push({ date, type:'Rest', name:'Rest day', duration:0, description:'', id:null, external_id:null });
+    }
+  }
+  return rows;
+}
+
+async function loadWeekPlan(){
+  const dates = [];
+  for (let i=1; i<=7; i++) dates.push(isoDate(daysFromNow(i)));
+
+  let existingEvents = [];
+  try {
+    existingEvents = await icuFetch('events', { oldest: dates[0], newest: dates[dates.length-1] });
+  } catch(e){
+    console.warn('Could not load existing calendar events', e);
+  }
+
+  const rows = dates.map(date => {
+    const match = (existingEvents || []).find(ev =>
+      (ev.start_date_local || '').slice(0,10) === date && ['WORKOUT','NOTE'].includes(ev.category)
+    );
+    if (match){
+      return {
+        date,
+        type: match.category === 'NOTE' ? 'Rest' : (match.type || 'Ride'),
+        name: match.name || '',
+        duration: match.moving_time ? Math.round(match.moving_time/60) : 0,
+        description: match.description || '',
+        id: match.id,
+        external_id: match.external_id || null,
+      };
+    }
+    return { date, type:'Rest', name:'Rest day', duration:0, description:'', id:null, external_id:null };
+  });
+
+  const hasAnyExisting = rows.some(r => r.id);
+  let reasoning = '';
+  if (!hasAnyExisting){
+    const signals = await computeSignals(window.__lastWellnessSorted || []);
+    const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
+    reasoning = decision.reasoning;
+    const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp);
+    proposed.forEach((p,i) => { rows[i] = { ...rows[i], ...p }; });
+  }
+
+  window.__planRows = rows;
+  renderPlan(rows, reasoning);
+}
+
+function renderPlan(rows, reasoning){
+  const card = document.getElementById('planCard');
+  let html = '';
+  if (reasoning){
+    html += `<div class="plan-reasoning">${reasoning}</div>`;
+  }
+  rows.forEach((r, idx) => {
+    const dayName = new Date(r.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'long' });
+    html += `
+      <div class="plan-row" data-idx="${idx}">
+        <div class="plan-row-top">
+          <span class="plan-date">${dayName} · ${r.date}</span>
+          <button class="plan-remove" data-idx="${idx}">Clear day</button>
+        </div>
+        <div class="plan-fields">
+          <div>
+            <label>Type</label>
+            <select class="f-type" data-idx="${idx}">
+              <option value="Ride" ${r.type==='Ride'?'selected':''}>Ride</option>
+              <option value="Run" ${r.type==='Run'?'selected':''}>Run</option>
+              <option value="Rest" ${r.type==='Rest'?'selected':''}>Rest</option>
+            </select>
+          </div>
+          <div>
+            <label>Duration (min)</label>
+            <input type="number" class="f-duration" data-idx="${idx}" value="${r.duration || ''}" min="0" step="5">
+          </div>
+          <div class="full">
+            <label>Name</label>
+            <input type="text" class="f-name" data-idx="${idx}" value="${(r.name||'').replace(/"/g,'&quot;')}">
+          </div>
+          <div class="full">
+            <label>Description</label>
+            <textarea class="f-desc" data-idx="${idx}">${r.description||''}</textarea>
+          </div>
+        </div>
+      </div>
+    `;
+  });
+  html += `
+    <div class="plan-actions">
+      <button class="btn btn-secondary" id="suggestPlanBtn">Suggest plan</button>
+      <button class="btn btn-primary" id="savePlanBtn">Save to Intervals.icu</button>
+    </div>
+    <div class="saved-flash" id="planSaved">Saved to calendar</div>
+  `;
+  card.innerHTML = html;
+
+  card.querySelectorAll('.f-type').forEach(el => el.addEventListener('change', e => {
+    window.__planRows[parseInt(e.target.dataset.idx,10)].type = e.target.value;
+  }));
+  card.querySelectorAll('.f-duration').forEach(el => el.addEventListener('change', e => {
+    window.__planRows[parseInt(e.target.dataset.idx,10)].duration = parseInt(e.target.value,10) || 0;
+  }));
+  card.querySelectorAll('.f-name').forEach(el => el.addEventListener('change', e => {
+    window.__planRows[parseInt(e.target.dataset.idx,10)].name = e.target.value;
+  }));
+  card.querySelectorAll('.f-desc').forEach(el => el.addEventListener('change', e => {
+    window.__planRows[parseInt(e.target.dataset.idx,10)].description = e.target.value;
+  }));
+  card.querySelectorAll('.plan-remove').forEach(el => el.addEventListener('click', e => {
+    clearPlanDay(parseInt(e.target.dataset.idx,10));
+  }));
+  document.getElementById('suggestPlanBtn').addEventListener('click', suggestPlan);
+  document.getElementById('savePlanBtn').addEventListener('click', savePlan);
+}
+
+async function clearPlanDay(i){
+  const row = window.__planRows[i];
+  if (row.id){
+    if (!confirm(`Remove the saved session on ${row.date} from your Intervals.icu calendar?`)) return;
+    try {
+      await icuWrite(`events/${row.id}`, 'DELETE');
+    } catch(e){
+      alert('Could not delete from Intervals.icu: ' + e.message);
+      return;
+    }
+  }
+  window.__planRows[i] = { date: row.date, type:'Rest', name:'Rest day', duration:0, description:'', id:null, external_id:null };
+  const existingReasoning = document.querySelector('.plan-reasoning')?.textContent || '';
+  renderPlan(window.__planRows, existingReasoning);
+}
+
+async function suggestPlan(){
+  const signals = await computeSignals(window.__lastWellnessSorted || []);
+  const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
+  const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp);
+  window.__planRows = proposed.map(p => {
+    const existing = window.__planRows.find(r => r.date === p.date && r.id);
+    return existing ? { ...p, id: existing.id, external_id: existing.external_id } : p;
+  });
+  renderPlan(window.__planRows, decision.reasoning);
+}
+
+async function savePlan(){
+  const btn = document.getElementById('savePlanBtn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  try {
+    for (const row of window.__planRows){
+      const payload = {
+        category: row.type === 'Rest' ? 'NOTE' : 'WORKOUT',
+        start_date_local: `${row.date}T06:00:00`,
+        name: row.name || (row.type === 'Rest' ? 'Rest day' : row.type),
+        external_id: `proj270-${row.date}`,
+      };
+      if (row.type !== 'Rest'){
+        payload.type = row.type;
+        if (row.duration) payload.moving_time = row.duration * 60;
+        if (row.description) payload.description = row.description;
+      } else if (row.description){
+        payload.description = row.description;
+      }
+
+      if (row.id){
+        await icuWrite(`events/${row.id}`, 'PUT', payload);
+      } else {
+        const created = await icuWrite('events', 'POST', payload);
+        if (created && created.id) row.id = created.id;
+      }
+    }
+
+    const reasoning = document.querySelector('.plan-reasoning')?.textContent || '';
+    try {
+      await sb.from('adjustment_log').insert({
+        week_start: window.__planRows[0]?.date,
+        reasoning,
+        details: window.__planRows,
+      });
+    } catch(e){ /* non-fatal */ }
+
+    flash(document.getElementById('planSaved'));
+  } catch(e){
+    alert('Could not save to Intervals.icu: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save to Intervals.icu';
+  }
+}
+
 async function init(){
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
 
@@ -644,12 +1030,21 @@ async function init(){
     }
     const currentWeight = (latest && latest.weight) || goals.baseline_weight;
 
+    window.__lastWellnessSorted = sorted;
+    window.__currentFtp = currentFtp;
+
     renderFtpWeight(currentFtp, currentWeight, ftpSource);
     renderPMC(latest?.ctl, latest?.atl);
     renderSleep(sorted);
 
     const activitiesSorted = [...activities].sort((a,b) => (b.start_date_local||'').localeCompare(a.start_date_local||''));
     renderActivities(activitiesSorted);
+
+    try {
+      await loadWeekPlan();
+    } catch (planErr){
+      document.getElementById('planCard').innerHTML = `<div style="font-size:13px;color:var(--muted);">Could not load the weekly plan: ${planErr.message}</div>`;
+    }
 
   } catch (e){
     showError(e.message);
