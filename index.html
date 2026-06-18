@@ -511,18 +511,22 @@
 
 </div>
 
+<script src="config.js"></script>
 <script>
 // ---------------------------------------------------------------
-// CONFIG — fill these in after you create the Supabase project
+// CONFIG — comes from config.js (sits in your repo, set up once,
+// never needs touching again when you get a new index.html from me)
 // ---------------------------------------------------------------
 const CONFIG = {
-  SUPABASE_URL: 'https://uictdfglyuvenoqcibsb.supabase.co',       // e.g. https://abcxyz.supabase.co
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I',
+  SUPABASE_URL: window.SUPABASE_URL,
+  SUPABASE_ANON_KEY: window.SUPABASE_ANON_KEY,
 };
 // ---------------------------------------------------------------
 
-const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
-const FN_BASE = `${CONFIG.SUPABASE_URL}/functions/v1/intervals-proxy`;
+const sb = (CONFIG.SUPABASE_URL && CONFIG.SUPABASE_ANON_KEY)
+  ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY)
+  : null;
+const FN_BASE = CONFIG.SUPABASE_URL ? `${CONFIG.SUPABASE_URL}/functions/v1/intervals-proxy` : '';
 
 const ZONE_COLORS = ['#5AA9E6','#5AA9E6','#6FCF73','#6FCF73','#E0B23A','#E8743B','#E0524F','#E0524F','#E0524F','#E0524F'];
 
@@ -549,7 +553,7 @@ async function icuFetch(route, params={}){
 
 function showError(msg){
   const el = document.getElementById('errorBanner');
-  el.innerHTML = `<div class="banner">Couldn't load live data: ${msg}. Check that the Edge Function is deployed and ICU_API_KEY / ICU_ATHLETE_ID secrets are set, and that SUPABASE_URL / SUPABASE_ANON_KEY are filled in at the top of this file.</div>`;
+  el.innerHTML = `<div class="banner">Couldn't load live data: ${msg}. Check that the Edge Function is deployed, ICU_API_KEY / ICU_ATHLETE_ID secrets are set, and config.js has your real SUPABASE_URL / SUPABASE_ANON_KEY.</div>`;
 }
 
 let goals = null;
@@ -1312,8 +1316,8 @@ async function savePlan(){
 async function init(){
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
 
-  if (CONFIG.SUPABASE_URL === 'YOUR_SUPABASE_URL'){
-    showError('SUPABASE_URL / SUPABASE_ANON_KEY not filled in yet');
+  if (!CONFIG.SUPABASE_URL || !CONFIG.SUPABASE_ANON_KEY){
+    showError('config.js is missing or incomplete — see SETUP.md to create it once');
     return;
   }
 
