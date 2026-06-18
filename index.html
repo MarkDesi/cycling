@@ -155,7 +155,27 @@
   .activity .meta{flex:1;min-width:0;}
   .activity .name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .activity .sub{font-size:11px;color:var(--muted);margin-top:2px;}
-  .rpe-row{display:flex;gap:3px;}
+  .activity{flex-wrap:wrap;}
+  .activity .meta{flex-basis:100%;}
+  .stat-chips{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    margin-top:6px;
+    flex-basis:100%;
+  }
+  .stat-chip{
+    font-family:'Space Mono',monospace;
+    font-size:11px;
+    background:var(--paper);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:3px 7px;
+    color:var(--ink);
+    white-space:nowrap;
+  }
+  .stat-chip .chip-label{color:var(--muted);margin-right:3px;}
+  .rpe-row{display:flex;gap:3px;flex-basis:100%;justify-content:flex-end;}
   .rpe-btn{
     width:22px;height:22px;
     border-radius:5px;
@@ -330,8 +350,8 @@
 // CONFIG — fill these in after you create the Supabase project
 // ---------------------------------------------------------------
 const CONFIG = {
-  SUPABASE_URL: 'https://uictdfglyuvenoqcibsb.supabase.co',       // e.g. https://abcxyz.supabase.co
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I',
+  SUPABASE_URL: 'YOUR_SUPABASE_URL',       // e.g. https://abcxyz.supabase.co
+  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
 };
 // ---------------------------------------------------------------
 
@@ -449,6 +469,48 @@ async function logRpe(activity, rpe){
   renderActivities(window.__lastActivities);
 }
 
+function formatDuration(seconds){
+  if (!seconds) return null;
+  const mins = Math.round(seconds / 60);
+  if (mins < 60) return `${mins}min`;
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function isRideType(type){
+  return /ride|bike|cycl|gravel|mtb/i.test(type || '');
+}
+
+function buildStatChips(a){
+  const chips = [];
+  const dur = formatDuration(a.moving_time);
+  if (dur) chips.push(`<span class="stat-chip"><span class="chip-label">Time</span>${dur}</span>`);
+
+  if (a.distance){
+    const km = (a.distance / 1000).toFixed(1);
+    chips.push(`<span class="stat-chip"><span class="chip-label">Dist</span>${km}km</span>`);
+  }
+
+  if (a.average_heartrate || a.max_heartrate){
+    const avg = a.average_heartrate ? Math.round(a.average_heartrate) : '--';
+    const max = a.max_heartrate ? Math.round(a.max_heartrate) : '--';
+    chips.push(`<span class="stat-chip"><span class="chip-label">HR</span>${avg} avg / ${max} max</span>`);
+  }
+
+  if (isRideType(a.type)){
+    const avgPower = a.average_watts ?? a.icu_average_watts ?? a.icu_weighted_avg_watts;
+    const maxPower = a.max_watts ?? a.icu_max_watts;
+    if (avgPower || maxPower){
+      const avg = avgPower ? Math.round(avgPower) : '--';
+      const max = maxPower ? Math.round(maxPower) : '--';
+      chips.push(`<span class="stat-chip"><span class="chip-label">Power</span>${avg}W avg / ${max}W max</span>`);
+    }
+  }
+
+  return chips.join('');
+}
+
 function renderActivities(activities){
   window.__lastActivities = activities;
   const card = document.getElementById('activitiesCard');
@@ -462,7 +524,6 @@ function renderActivities(activities){
       const row = document.createElement('div');
       row.className = 'activity';
       const date = (a.start_date_local || '').slice(0,10);
-      const dur = a.moving_time ? Math.round(a.moving_time/60) : null;
       const logged = rpeMap[a.id];
       let rpeHtml;
       if (logged){
@@ -477,8 +538,9 @@ function renderActivities(activities){
       row.innerHTML = `
         <div class="meta">
           <div class="name">${a.name || a.type}</div>
-          <div class="sub">${date}${dur ? ' · ' + dur + 'min' : ''}</div>
+          <div class="sub">${date}</div>
         </div>
+        <div class="stat-chips">${buildStatChips(a)}</div>
         ${rpeHtml}
       `;
       card.appendChild(row);
@@ -518,7 +580,11 @@ async function init(){
   try {
     const [wellness, activities, sportSettings] = await Promise.all([
       icuFetch('wellness', { oldest: isoDate(daysAgo(30)), newest: isoDate(new Date()) }),
-      icuFetch('activities', { oldest: isoDate(daysAgo(14)), newest: isoDate(new Date()) }),
+      icuFetch('activities', {
+        oldest: isoDate(daysAgo(14)),
+        newest: isoDate(new Date()),
+        fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts'
+      }),
       icuFetch('sport-settings'),
     ]);
 
