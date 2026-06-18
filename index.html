@@ -1489,11 +1489,41 @@ async function suggestPlan(){
   const signals = await computeSignals(window.__lastWellnessSorted || []);
   const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
   const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo, dates);
+
+  let fingerprints = [];
+  try {
+    const { data } = await sb.from('auto_plan_state').select('date,content').in('date', dates);
+    fingerprints = data || [];
+  } catch(e){ /* if this lookup fails, fall through — anything with an id stays protected below */ }
+  const fpMap = new Map(fingerprints.map(f => [f.date, f.content]));
+
+  let protectedCount = 0;
   window.__planRows = proposed.map(p => {
-    const existing = window.__planRows.find(r => r.date === p.date && r.id);
-    return existing ? { ...p, id: existing.id, external_id: existing.external_id } : p;
+    const existing = window.__planRows.find(r => r.date === p.date);
+    if (existing && existing.id){
+      const untouchedSinceLastWrite = fpMap.get(p.date) === rowContentSnapshot(existing);
+      if (!untouchedSinceLastWrite){
+        protectedCount++;
+        return existing; // changed directly on Intervals.icu since we last wrote it — leave it exactly as-is
+      }
+      return { ...p, id: existing.id, external_id: existing.external_id };
+    }
+    return p;
   });
-  renderPlan(window.__planRows, phaseReasoning(phaseInfo) + ' ' + decision.reasoning);
+
+  const protectedNote = protectedCount
+    ? ` (${protectedCount} day${protectedCount > 1 ? 's' : ''} left untouched — looks like you changed ${protectedCount > 1 ? 'them' : 'it'} directly on Intervals.icu.)`
+    : '';
+  renderPlan(window.__planRows, phaseReasoning(phaseInfo) + ' ' + decision.reasoning + protectedNote);
+}
+
+function rowContentSnapshot(row){
+  return JSON.stringify({
+    type: row.type,
+    name: row.name,
+    duration: row.duration,
+    description: row.description,
+  });
 }
 
 async function saveRowToIntervals(row){
@@ -1517,6 +1547,15 @@ async function saveRowToIntervals(row){
     const created = await icuWrite('events', 'POST', payload);
     if (created && created.id) row.id = created.id;
   }
+
+  try {
+    await sb.from('auto_plan_state').upsert({
+      date: row.date,
+      content: rowContentSnapshot(row),
+      written_at: new Date().toISOString(),
+    });
+  } catch(e){ /* non-fatal — worst case this day just isn't protected from a future regeneration */ }
+
   return row;
 }
 
@@ -1660,8 +1699,15 @@ async function init(){
 async function saveAvailability(){
   const days = parseInt(document.getElementById('daysInput').value, 10);
   const hours = parseFloat(document.getElementById('hoursInput').value);
-  const { error } = await sb.from('goals').update({ days_per_week: days, hours_per_week: hours, updated_at: new Date().toISOString() }).eq('id', 1);
-  if (!error) flash(document.getElementById('availSaved'));
+  const payload = { days_per_week: days, hours_per_week: hours, updated_at: new Date().toISOString() };
+  const { error } = await sb.from('goals').update(payload).eq('id', 1);
+  if (!error){
+    goals = { ...goals, ...payload };
+    flash(document.getElementById('availSaved'));
+    try {
+      await suggestPlan();
+    } catch(e){ /* non-fatal — the saved values are still correct even if the live re-suggest fails */ }
+  }
 }
 
 async function saveGoal(){
