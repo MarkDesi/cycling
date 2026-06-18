@@ -3,27 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="theme-color" content="#33474A">
+<meta name="theme-color" content="#1C1C1A">
 <title>Project 270</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --paper:#F6F4EF;
-    --card:#FFFFFF;
-    --ink:#2B2A28;
-    --muted:#8B8680;
-    --line:#E6E1D6;
-    --accent:#33474A;
-    --accent-soft:#DCE6E4;
-    --z1:#9DBEDB;
-    --z2:#8FB996;
-    --z3:#E3C66B;
-    --z4:#E0935C;
-    --z5:#D17575;
-    --good:#6E9B7B;
-    --warn:#C9785C;
+    --paper:#1C1C1A;
+    --card:#262624;
+    --ink:#F2F0EA;
+    --muted:#9C9A93;
+    --line:#3A3A37;
+    --accent:#EF9F27;
+    --accent-soft:#3A2E12;
+    --ink-on-accent:#1C1C1A;
+    --z1:#5AA9E6;
+    --z2:#6FCF73;
+    --z3:#E0B23A;
+    --z4:#E8743B;
+    --z5:#E0524F;
+    --good:#6FCF73;
+    --warn:#E0524F;
+    --warn-bg:#3A2220;
+    --warn-text:#F2A99B;
     --radius:14px;
   }
   *{box-sizing:border-box;}
@@ -235,16 +238,16 @@
   .saved-flash.show{opacity:1;}
 
   .banner{
-    background:#FBEFE9;
+    background:var(--warn-bg);
     border:1px solid var(--warn);
-    color:#8C4A33;
+    color:var(--warn-text);
     border-radius:10px;
     padding:12px 14px;
     font-size:13px;
     margin-bottom:14px;
   }
   .skeleton{
-    background:linear-gradient(90deg,var(--line) 25%,#f0ede4 37%,var(--line) 63%);
+    background:linear-gradient(90deg,var(--line) 25%,#333330 37%,var(--line) 63%);
     background-size:400% 100%;
     animation:shimmer 1.4s ease infinite;
     border-radius:8px;
@@ -271,17 +274,52 @@
     padding:10px 12px;
     margin-bottom:12px;
   }
-  .plan-row{
+  .cal-hint{
+    font-size:11px;
+    color:var(--muted);
+    margin-bottom:10px;
+  }
+  .cal-strip{
+    display:flex;
+    gap:8px;
+    overflow-x:auto;
+    scroll-snap-type:x mandatory;
+    padding-bottom:8px;
+    margin-bottom:14px;
+  }
+  .cal-day{
+    flex:0 0 92px;
+    scroll-snap-align:start;
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:10px 8px;
+    cursor:pointer;
+    min-height:104px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+    background:var(--card);
+  }
+  .cal-day.selected{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  .cal-day.picked{border-color:var(--accent);background:var(--accent-soft);}
+  .cal-day .cd-dot{display:block;width:8px;height:8px;border-radius:50%;margin-bottom:6px;}
+  .cal-day .cd-day{font-size:11px;font-weight:700;color:var(--ink);}
+  .cal-day .cd-date{font-size:10px;color:var(--muted);margin-bottom:8px;}
+  .cal-day .cd-name{font-size:11px;font-weight:500;color:var(--ink);line-height:1.3;}
+  .cal-day .cd-dur{font-family:'Space Mono',monospace;font-size:11px;color:var(--muted);margin-top:6px;}
+
+  .plan-detail{
     border:1px solid var(--line);
     border-radius:10px;
     padding:10px 12px;
-    margin-bottom:8px;
+    margin-bottom:14px;
   }
   .plan-row-top{
     display:flex;
     justify-content:space-between;
     align-items:center;
     margin-bottom:8px;
+    gap:10px;
   }
   .plan-date{
     font-family:'Space Mono',monospace;
@@ -289,14 +327,16 @@
     font-weight:700;
     color:var(--accent);
   }
-  .plan-remove{
+  .plan-move,.plan-remove{
     background:none;
     border:none;
-    color:var(--warn);
     font-size:12px;
     cursor:pointer;
     padding:2px 6px;
+    white-space:nowrap;
   }
+  .plan-move{color:var(--accent);}
+  .plan-remove{color:var(--warn);}
   .plan-fields{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
   .plan-fields .full{grid-column:1/-1;}
   .plan-fields label{display:block;font-size:10px;color:var(--muted);margin-bottom:3px;}
@@ -322,7 +362,7 @@
     font-size:13px;
     cursor:pointer;
   }
-  .btn-primary{background:var(--accent);color:white;}
+  .btn-primary{background:var(--accent);color:var(--ink-on-accent);}
   .btn-secondary{background:var(--accent-soft);color:var(--accent);}
   .btn:disabled{opacity:0.5;cursor:default;}
 
@@ -347,7 +387,7 @@
   }
   .tab-btn.active{
     background:var(--accent);
-    color:white;
+    color:var(--ink-on-accent);
     border-color:var(--accent);
   }
   .view{display:none;}
@@ -480,15 +520,15 @@
 // CONFIG — fill these in after you create the Supabase project
 // ---------------------------------------------------------------
 const CONFIG = {
-  SUPABASE_URL: 'https://uictdfglyuvenoqcibsb.supabase.co',       // e.g. https://abcxyz.supabase.co
-  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I',
+  SUPABASE_URL: 'YOUR_SUPABASE_URL',       // e.g. https://abcxyz.supabase.co
+  SUPABASE_ANON_KEY: 'YOUR_SUPABASE_ANON_KEY',
 };
 // ---------------------------------------------------------------
 
 const sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
 const FN_BASE = `${CONFIG.SUPABASE_URL}/functions/v1/intervals-proxy`;
 
-const ZONE_COLORS = ['#9DBEDB','#9DBEDB','#8FB996','#8FB996','#E3C66B','#E0935C','#D17575','#D17575','#D17575','#D17575'];
+const ZONE_COLORS = ['#5AA9E6','#5AA9E6','#6FCF73','#6FCF73','#E0B23A','#E8743B','#E0524F','#E0524F','#E0524F','#E0524F'];
 
 function isoDate(d){ return d.toISOString().slice(0,10); }
 function daysAgo(n){ const d = new Date(); d.setDate(d.getDate()-n); return d; }
@@ -976,45 +1016,93 @@ async function loadWeekPlan(){
   renderPlan(rows, reasoning);
 }
 
+function sessionAccentColor(row){
+  if (!row || row.type === 'Rest' || !row.duration) return 'var(--line)';
+  const n = (row.name || '').toLowerCase();
+  if (n.includes('benchmark')) return 'var(--z1)';
+  if (n.includes('test')) return 'var(--z5)';
+  if (n.includes('endurance')) return 'var(--z2)';
+  return 'var(--z4)';
+}
+
+function swapPlanDays(i, j){
+  const rows = window.__planRows;
+  const a = { type: rows[i].type, name: rows[i].name, duration: rows[i].duration, description: rows[i].description };
+  const b = { type: rows[j].type, name: rows[j].name, duration: rows[j].duration, description: rows[j].description };
+  Object.assign(rows[i], b);
+  Object.assign(rows[j], a);
+}
+
 function renderPlan(rows, reasoning){
   const card = document.getElementById('planCard');
+  if (window.__selectedDayIdx == null || window.__selectedDayIdx >= rows.length){
+    window.__selectedDayIdx = 0;
+  }
+  const selIdx = window.__selectedDayIdx;
+  const pickedIdx = window.__pickedDayIdx;
+  const sel = rows[selIdx];
+
   let html = '';
   if (reasoning){
     html += `<div class="plan-reasoning">${reasoning}</div>`;
   }
+
+  html += `<div class="cal-hint">Tap a day to edit it. Tap "Move" then tap another day to swap them.</div>`;
+  html += `<div class="cal-strip">`;
   rows.forEach((r, idx) => {
-    const dayName = new Date(r.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'long' });
+    const dayName = new Date(r.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'short' });
+    const dateShort = new Date(r.date + 'T00:00:00').toLocaleDateString('en-AU', { day:'numeric', month:'short' });
+    const classes = ['cal-day'];
+    if (idx === selIdx) classes.push('selected');
+    if (idx === pickedIdx) classes.push('picked');
     html += `
-      <div class="plan-row" data-idx="${idx}">
-        <div class="plan-row-top">
-          <span class="plan-date">${dayName} · ${r.date}</span>
-          <button class="plan-remove" data-idx="${idx}">Clear day</button>
+      <div class="${classes.join(' ')}" data-idx="${idx}">
+        <div>
+          <span class="cd-dot" style="background:${sessionAccentColor(r)}"></span>
+          <div class="cd-day">${dayName}</div>
+          <div class="cd-date">${dateShort}</div>
+          <div class="cd-name">${r.type === 'Rest' || !r.name ? 'Rest' : r.name}</div>
         </div>
-        <div class="plan-fields">
-          <div>
-            <label>Type</label>
-            <select class="f-type" data-idx="${idx}">
-              <option value="Ride" ${r.type==='Ride'?'selected':''}>Ride</option>
-              <option value="Run" ${r.type==='Run'?'selected':''}>Run</option>
-              <option value="Rest" ${r.type==='Rest'?'selected':''}>Rest</option>
-            </select>
-          </div>
-          <div>
-            <label>Duration (min)</label>
-            <input type="number" class="f-duration" data-idx="${idx}" value="${r.duration || ''}" min="0" step="5">
-          </div>
-          <div class="full">
-            <label>Name</label>
-            <input type="text" class="f-name" data-idx="${idx}" value="${(r.name||'').replace(/"/g,'&quot;')}">
-          </div>
-          <div class="full">
-            <label>Description</label>
-            <textarea class="f-desc" data-idx="${idx}">${r.description||''}</textarea>
-          </div>
-        </div>
+        <div class="cd-dur">${r.duration ? r.duration + 'min' : ''}</div>
       </div>
     `;
   });
+  html += `</div>`;
+
+  html += `
+    <div class="plan-detail">
+      <div class="plan-row-top">
+        <span class="plan-date">${new Date(sel.date + 'T00:00:00').toLocaleDateString('en-AU', { weekday:'long' })} · ${sel.date}</span>
+        <div style="display:flex;gap:4px;">
+          <button class="plan-move" id="movePlanBtn">${pickedIdx === selIdx ? 'Cancel move' : 'Move'}</button>
+          <button class="plan-remove" id="clearPlanBtn">Clear day</button>
+        </div>
+      </div>
+      <div class="plan-fields">
+        <div>
+          <label>Type</label>
+          <select class="f-type" data-idx="${selIdx}">
+            <option value="Ride" ${sel.type==='Ride'?'selected':''}>Ride</option>
+            <option value="Run" ${sel.type==='Run'?'selected':''}>Run</option>
+            <option value="Rest" ${sel.type==='Rest'?'selected':''}>Rest</option>
+          </select>
+        </div>
+        <div>
+          <label>Duration (min)</label>
+          <input type="number" class="f-duration" data-idx="${selIdx}" value="${sel.duration || ''}" min="0" step="5">
+        </div>
+        <div class="full">
+          <label>Name</label>
+          <input type="text" class="f-name" data-idx="${selIdx}" value="${(sel.name||'').replace(/"/g,'&quot;')}">
+        </div>
+        <div class="full">
+          <label>Description</label>
+          <textarea class="f-desc" data-idx="${selIdx}">${sel.description||''}</textarea>
+        </div>
+      </div>
+    </div>
+  `;
+
   html += `
     <div class="plan-actions">
       <button class="btn btn-secondary" id="suggestPlanBtn">Suggest plan</button>
@@ -1023,6 +1111,18 @@ function renderPlan(rows, reasoning){
     <div class="saved-flash" id="planSaved">Saved to calendar</div>
   `;
   card.innerHTML = html;
+
+  card.querySelectorAll('.cal-day').forEach(el => el.addEventListener('click', () => {
+    const idx = parseInt(el.dataset.idx, 10);
+    if (window.__pickedDayIdx != null && window.__pickedDayIdx !== idx){
+      swapPlanDays(window.__pickedDayIdx, idx);
+      window.__pickedDayIdx = null;
+      window.__selectedDayIdx = idx;
+    } else {
+      window.__selectedDayIdx = idx;
+    }
+    renderPlan(window.__planRows, reasoning);
+  }));
 
   card.querySelectorAll('.f-type').forEach(el => el.addEventListener('change', e => {
     window.__planRows[parseInt(e.target.dataset.idx,10)].type = e.target.value;
@@ -1036,9 +1136,14 @@ function renderPlan(rows, reasoning){
   card.querySelectorAll('.f-desc').forEach(el => el.addEventListener('change', e => {
     window.__planRows[parseInt(e.target.dataset.idx,10)].description = e.target.value;
   }));
-  card.querySelectorAll('.plan-remove').forEach(el => el.addEventListener('click', e => {
-    clearPlanDay(parseInt(e.target.dataset.idx,10));
-  }));
+
+  document.getElementById('movePlanBtn').addEventListener('click', () => {
+    window.__pickedDayIdx = (window.__pickedDayIdx === selIdx) ? null : selIdx;
+    renderPlan(window.__planRows, reasoning);
+  });
+  document.getElementById('clearPlanBtn').addEventListener('click', () => {
+    clearPlanDay(selIdx);
+  });
   document.getElementById('suggestPlanBtn').addEventListener('click', suggestPlan);
   document.getElementById('savePlanBtn').addEventListener('click', savePlan);
 }
