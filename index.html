@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#1C1C1A">
 <title>Project 270</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Project 270">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -181,13 +186,12 @@
     padding:10px 0;
     border-bottom:1px solid var(--line);
     gap:10px;
+    flex-wrap:wrap;
   }
   .activity:last-child{border-bottom:none;}
-  .activity .meta{flex:1;min-width:0;}
+  .activity .meta{flex:1;min-width:0;flex-basis:100%;}
   .activity .name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .activity .sub{font-size:11px;color:var(--muted);margin-top:2px;}
-  .activity{flex-wrap:wrap;}
-  .activity .meta{flex-basis:100%;}
   .stat-chips{
     display:flex;
     flex-wrap:wrap;
@@ -283,6 +287,20 @@
     cursor:pointer;
   }
   .skip-card button.primary{background:var(--warn);color:var(--ink-on-accent);}
+
+  .pace-row{display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);gap:10px;}
+  .pace-row:last-child{border-bottom:none;}
+  .pace-row .pace-label{font-size:13px;color:var(--ink);}
+  .pace-row .pace-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+  .pace-badge{font-family:'Space Mono',monospace;font-size:11px;font-weight:700;padding:4px 9px;border-radius:6px;white-space:nowrap;}
+  .pace-badge.on-track{background:rgba(111,207,115,0.15);color:var(--z2);}
+  .pace-badge.behind{background:rgba(224,82,79,0.15);color:var(--z5);}
+  .pace-badge.insufficient{background:var(--accent-soft);color:var(--muted);}
+
+  .bench-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--line);font-size:12px;}
+  .bench-row:last-child{border-bottom:none;}
+  .bench-row .bench-date{color:var(--muted);}
+  .bench-row .bench-watts{font-family:'Space Mono',monospace;color:var(--ink);font-weight:700;}
   .skeleton{
     background:linear-gradient(90deg,var(--line) 25%,#333330 37%,var(--line) 63%);
     background-size:400% 100%;
@@ -444,6 +462,7 @@
   <div class="tabs">
     <button class="tab-btn active" id="tabBtnPlan">Plan</button>
     <button class="tab-btn" id="tabBtnActivities">Activities</button>
+    <button class="tab-btn" id="tabBtnProgress">Progress</button>
   </div>
 
   <div class="view active" id="view-plan">
@@ -551,6 +570,27 @@
   <div class="card" id="activitiesCard">
     <div class="skeleton"></div>
   </div>
+
+  </div>
+
+  <div class="view" id="view-progress">
+
+  <div class="section-title">Goal pace</div>
+  <div class="card" id="paceCard">
+    <div class="skeleton"></div>
+  </div>
+
+  <div class="section-title">FTP over time</div>
+  <div class="card" id="ftpTrendCard"></div>
+
+  <div class="section-title">Weight over time</div>
+  <div class="card" id="weightTrendCard"></div>
+
+  <div class="section-title">Fitness (CTL) over time</div>
+  <div class="card" id="ctlTrendCard"></div>
+
+  <div class="section-title">Sweet Spot Benchmark history</div>
+  <div class="card" id="benchmarkTrendCard"></div>
 
   </div>
 
@@ -796,10 +836,171 @@ function renderActivities(activities){
 }
 
 // -----------------------------------------------------------------
-// Weekly plan engine — pass 2
-// Recovery signals (TSB, RPE, sleep) lead; the FTP/weight goal only
-// nudges the ramp rate when recovery already looks fine.
+// Progress tab — trend charts and goal-pace projection
 // -----------------------------------------------------------------
+
+function buildLineChartSvg(points, opts = {}){
+  if (!points || points.length < 2){
+    return '<div style="font-size:12px;color:var(--muted);">Not enough data yet — check back after a few more weeks.</div>';
+  }
+  const W = 600, H = 130, padL = 8, padR = 8, padT = 14, padB = 22;
+  const ys = points.map(p => p.y);
+  let minY = Math.min(...ys);
+  let maxY = Math.max(...ys);
+  if (opts.goalY != null){ minY = Math.min(minY, opts.goalY); maxY = Math.max(maxY, opts.goalY); }
+  const range = (maxY - minY) || 1;
+  minY -= range * 0.12;
+  maxY += range * 0.12;
+
+  const xForIdx = i => padL + (i / Math.max(1, points.length - 1)) * (W - padL - padR);
+  const yForVal = v => (H - padB) - ((v - minY) / (maxY - minY)) * (H - padT - padB);
+
+  const linePoints = points.map((p,i) => `${xForIdx(i).toFixed(1)},${yForVal(p.y).toFixed(1)}`).join(' ');
+  const dots = points.map((p,i) => `<circle cx="${xForIdx(i).toFixed(1)}" cy="${yForVal(p.y).toFixed(1)}" r="2.5" fill="var(--accent)"/>`).join('');
+
+  let goalLine = '';
+  if (opts.goalY != null){
+    const gy = yForVal(opts.goalY).toFixed(1);
+    goalLine = `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--z2)" stroke-width="1" stroke-dasharray="4,4" opacity="0.7"/>
+      <text x="${W-padR}" y="${parseFloat(gy)-4}" text-anchor="end" font-size="9" fill="var(--z2)">goal</text>`;
+  }
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:120px;display:block;">
+      ${goalLine}
+      <polyline points="${linePoints}" fill="none" stroke="var(--accent)" stroke-width="2"/>
+      ${dots}
+      <text x="${padL}" y="${H-6}" font-size="9" fill="var(--muted)">${points[0].x}</text>
+      <text x="${W-padR}" y="${H-6}" text-anchor="end" font-size="9" fill="var(--muted)">${points[points.length-1].x}</text>
+    </svg>
+  `;
+}
+
+function extractFtpHistory(wellnessSorted){
+  return wellnessSorted
+    .map(w => {
+      const match = (w.sportInfo || []).find(s => isRideType(s.type) && s.eftp);
+      return match ? { x: w.id, y: match.eftp } : null;
+    })
+    .filter(Boolean);
+}
+
+function extractWeightHistory(wellnessSorted){
+  return wellnessSorted
+    .filter(w => w.weight)
+    .map(w => ({ x: w.id, y: w.weight }));
+}
+
+function extractCtlHistory(wellnessSorted){
+  return wellnessSorted
+    .filter(w => w.ctl != null)
+    .map(w => ({ x: w.id, y: w.ctl }));
+}
+
+// Compares your actual recent rate of change against the rate required to
+// hit the goal by target_date, and projects where you'll land if the
+// recent trend holds.
+function computeGoalPace(history, baselineValue, goalValue, programStartDate, targetDate){
+  if (!history || history.length < 2){
+    return { status:'insufficient' };
+  }
+  const first = history[0];
+  const last = history[history.length - 1];
+  const elapsedWeeks = (new Date(last.x) - new Date(first.x)) / (7*24*3600*1000);
+  if (elapsedWeeks < 1){
+    return { status:'insufficient' };
+  }
+
+  const actualRatePerWeek = (last.y - first.y) / elapsedWeeks;
+  const totalProgramWeeks = (new Date(targetDate) - new Date(programStartDate)) / (7*24*3600*1000);
+  const requiredRatePerWeek = totalProgramWeeks > 0 ? (goalValue - baselineValue) / totalProgramWeeks : 0;
+  const weeksRemaining = Math.max(0, (new Date(targetDate) - new Date(last.x)) / (7*24*3600*1000));
+  const projectedFinal = last.y + actualRatePerWeek * weeksRemaining;
+
+  const goalIsIncrease = goalValue >= baselineValue;
+  const onTrack = goalIsIncrease ? (projectedFinal >= goalValue) : (projectedFinal <= goalValue);
+
+  return {
+    status: onTrack ? 'on-track' : 'behind',
+    actualRatePerWeek,
+    requiredRatePerWeek,
+    projectedFinal,
+    current: last.y,
+  };
+}
+
+function renderPaceRow(label, unitSuffix, pace, decimals){
+  if (pace.status === 'insufficient'){
+    return `
+      <div class="pace-row">
+        <div>
+          <div class="pace-label">${label}</div>
+          <div class="pace-sub">Not enough history yet to project a pace.</div>
+        </div>
+        <span class="pace-badge insufficient">—</span>
+      </div>
+    `;
+  }
+  const fmt = n => n.toFixed(decimals);
+  const sign = pace.actualRatePerWeek >= 0 ? '+' : '';
+  return `
+    <div class="pace-row">
+      <div>
+        <div class="pace-label">${label}</div>
+        <div class="pace-sub">${sign}${fmt(pace.actualRatePerWeek)}${unitSuffix}/week actual, vs ${fmt(pace.requiredRatePerWeek)}${unitSuffix}/week needed — projected to reach ${fmt(pace.projectedFinal)}${unitSuffix === '%' ? '' : unitSuffix.replace('/wk','')} by your goal date.</div>
+      </div>
+      <span class="pace-badge ${pace.status}">${pace.status === 'on-track' ? 'On track' : 'Behind'}</span>
+    </div>
+  `;
+}
+
+async function loadProgressData(){
+  const paceCard = document.getElementById('paceCard');
+  try {
+    const wellnessLong = await icuFetch('wellness', { oldest: isoDate(daysAgo(180)) });
+    const wellnessSorted = [...wellnessLong].sort((a,b) => a.id.localeCompare(b.id));
+
+    const ftpHistory = extractFtpHistory(wellnessSorted);
+    const weightHistory = extractWeightHistory(wellnessSorted);
+    const ctlHistory = extractCtlHistory(wellnessSorted);
+
+    const ftpPace = computeGoalPace(ftpHistory, goals.baseline_ftp, goals.goal_ftp, goals.program_start_date, goals.target_date);
+    const weightPace = computeGoalPace(weightHistory, goals.baseline_weight, goals.goal_weight, goals.program_start_date, goals.target_date);
+
+    paceCard.innerHTML =
+      renderPaceRow('FTP', 'W', ftpPace, 1) +
+      renderPaceRow('Weight', 'kg', weightPace, 1);
+
+    document.getElementById('ftpTrendCard').innerHTML = buildLineChartSvg(ftpHistory, { goalY: goals.goal_ftp });
+    document.getElementById('weightTrendCard').innerHTML = buildLineChartSvg(weightHistory, { goalY: goals.goal_weight });
+    document.getElementById('ctlTrendCard').innerHTML = buildLineChartSvg(ctlHistory);
+
+    const benchActivities = await icuFetch('activities', {
+      oldest: isoDate(daysAgo(180)),
+      fields: 'id,name,type,start_date_local,icu_weighted_avg_watts,average_watts',
+    });
+    const benchHistory = (benchActivities || [])
+      .filter(a => (a.name || '').toLowerCase().includes('sweet spot benchmark'))
+      .sort((a,b) => (a.start_date_local||'').localeCompare(b.start_date_local||''))
+      .map(a => ({ date: (a.start_date_local||'').slice(0,10), watts: a.icu_weighted_avg_watts || a.average_watts }))
+      .filter(b => b.watts);
+
+    const benchCard = document.getElementById('benchmarkTrendCard');
+    if (!benchHistory.length){
+      benchCard.innerHTML = '<div style="font-size:12px;color:var(--muted);">No completed benchmark sessions yet — these show up here once you\'ve done a few.</div>';
+    } else {
+      benchCard.innerHTML = benchHistory.map(b => `
+        <div class="bench-row">
+          <span class="bench-date">${b.date}</span>
+          <span class="bench-watts">${Math.round(b.watts)}W</span>
+        </div>
+      `).join('');
+    }
+  } catch(e){
+    paceCard.innerHTML = `<div style="font-size:13px;color:var(--muted);">Could not load progress data: ${e.message}</div>`;
+  }
+}
+
 
 async function icuWrite(route, method, body){
   const qs = method === 'POST' ? '?upsertOnUid=true' : '';
@@ -939,10 +1140,25 @@ function datesForWeekNumber(programStartDate, weekNumber){
   return dates;
 }
 
+function weeksUntilTargetForWeek(programStartDate, weekNumber, targetDate){
+  const weekDates = datesForWeekNumber(programStartDate, weekNumber);
+  const weekEnd = new Date(weekDates[6] + 'T00:00:00');
+  const target = new Date(targetDate + 'T00:00:00');
+  return (target - weekEnd) / (7 * 24 * 3600 * 1000);
+}
+
 // Weeks 1-4: base phase, endurance only.
 // Week 5+: build, in 4-week mesocycles (3 load weeks + 1 scheduled deload).
 // Every other deload (~every 8 weeks) doubles as the FTP test week.
-function computePhase(weekNumber){
+// Final 2 weeks before the goal date: taper, regardless of where that lands
+// in the normal cycle — easing off so you arrive at the date fresh, not mid-block.
+function computePhase(weekNumber, weeksUntilTarget){
+  if (weeksUntilTarget != null && weeksUntilTarget <= 1 && weeksUntilTarget > -1){
+    return { phase:'taper', taperLevel:'final', isScheduledDeload:false, isFtpTestWeek:false, cyclePos:null, weekNumber };
+  }
+  if (weeksUntilTarget != null && weeksUntilTarget <= 2 && weeksUntilTarget > 1){
+    return { phase:'taper', taperLevel:'easing', isScheduledDeload:false, isFtpTestWeek:false, cyclePos:null, weekNumber };
+  }
   if (weekNumber <= 4){
     return { phase:'base', isScheduledDeload:false, isFtpTestWeek:false, cyclePos:null, weekNumber };
   }
@@ -955,6 +1171,11 @@ function computePhase(weekNumber){
 }
 
 function phaseReasoning(phaseInfo){
+  if (phaseInfo.phase === 'taper'){
+    return phaseInfo.taperLevel === 'final'
+      ? `Final week before your goal date — easing right off so you're fresh, not fried, for it.`
+      : `Goal date is close — tapering down so you head into it well-rested rather than mid-block.`;
+  }
   if (phaseInfo.phase === 'base'){
     return `Base phase, week ${phaseInfo.weekNumber} of 4 — building aerobic foundation before structured intervals start.`;
   }
@@ -971,6 +1192,18 @@ function buildSessions(mode, goalsCfg, currentFtp, phaseInfo){
   const totalMin = Math.round(goalsCfg.hours_per_week * 60);
   let days = goalsCfg.days_per_week;
   let weekMin = totalMin;
+
+  if (phaseInfo.phase === 'taper'){
+    weekMin = Math.round(totalMin * (phaseInfo.taperLevel === 'final' ? 0.4 : 0.7));
+    days = phaseInfo.taperLevel === 'final' ? Math.min(days, 3) : Math.max(2, days - 1);
+    const each = Math.max(20, Math.round(weekMin / days));
+    const sessions = [];
+    for (let i=0; i<days; i++){
+      sessions.push({ type:'Ride', name:'Easy spin', duration: each, description: enduranceDesc(each, true) });
+    }
+    return sessions;
+  }
+
   const reduceLoad = (mode === 'recovery') || phaseInfo.isScheduledDeload;
   if (reduceLoad){ weekMin = Math.round(totalMin * 0.7); days = Math.max(2, days - 1); }
   if (mode === 'progress' && !phaseInfo.isScheduledDeload){ weekMin = Math.round(Math.min(totalMin * 1.1, totalMin + 60)); }
@@ -1078,7 +1311,7 @@ async function loadWeekPlan(){
   let reasoning = '';
   if (!hasAnyExisting){
     const weekNumber = getWeekNumber(goals.program_start_date);
-    const phaseInfo = computePhase(weekNumber);
+    const phaseInfo = computePhase(weekNumber, weeksUntilTargetForWeek(goals.program_start_date, weekNumber, goals.target_date));
     const signals = await computeSignals(window.__lastWellnessSorted || []);
     const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
     reasoning = phaseReasoning(phaseInfo) + ' ' + decision.reasoning;
@@ -1361,7 +1594,7 @@ async function autoExtendHorizon(){
     ));
     if (hasAny) continue; // already populated, or you've edited it yourself — leave it alone
 
-    const phaseInfo = computePhase(w);
+    const phaseInfo = computePhase(w, weeksUntilTargetForWeek(goals.program_start_date, w, goals.target_date));
     const signals = await computeSignals(window.__lastWellnessSorted || []);
     const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
     const rows = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo, weekDates);
@@ -1485,7 +1718,7 @@ async function suggestPlan(){
   const dates = [];
   for (let i=1; i<=7; i++) dates.push(isoDate(daysFromNow(i)));
   const weekNumber = getWeekNumber(goals.program_start_date);
-  const phaseInfo = computePhase(weekNumber);
+  const phaseInfo = computePhase(weekNumber, weeksUntilTargetForWeek(goals.program_start_date, weekNumber, goals.target_date));
   const signals = await computeSignals(window.__lastWellnessSorted || []);
   const decision = decideMode(signals, goals, window.__currentFtp || goals.baseline_ftp);
   const proposed = generateProposedRows(decision.mode, goals, window.__currentFtp || goals.baseline_ftp, phaseInfo, dates);
@@ -1730,11 +1963,24 @@ async function saveGoal(){
 function setView(name){
   document.getElementById('view-plan').classList.toggle('active', name === 'plan');
   document.getElementById('view-activities').classList.toggle('active', name === 'activities');
+  document.getElementById('view-progress').classList.toggle('active', name === 'progress');
   document.getElementById('tabBtnPlan').classList.toggle('active', name === 'plan');
   document.getElementById('tabBtnActivities').classList.toggle('active', name === 'activities');
+  document.getElementById('tabBtnProgress').classList.toggle('active', name === 'progress');
+  if (name === 'progress' && !window.__progressLoaded){
+    window.__progressLoaded = true;
+    loadProgressData();
+  }
 }
 document.getElementById('tabBtnPlan').addEventListener('click', () => setView('plan'));
 document.getElementById('tabBtnActivities').addEventListener('click', () => setView('activities'));
+document.getElementById('tabBtnProgress').addEventListener('click', () => setView('progress'));
+
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker registration failed', e));
+  });
+}
 
 init();
 </script>
