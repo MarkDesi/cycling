@@ -41,10 +41,10 @@
     color:var(--ink);
     font-family:'Inter',sans-serif;
     -webkit-font-smoothing:antialiased;
-    padding-bottom:60px;
+    padding-bottom:max(60px, env(safe-area-inset-bottom));
   }
   .mono{font-family:'Space Mono',monospace;}
-  .wrap{max-width:680px;margin:0 auto;padding:20px 16px 80px;}
+  .wrap{max-width:680px;margin:0 auto;padding:max(20px, env(safe-area-inset-top)) 16px 80px;}
 
   header.top{
     display:flex;
@@ -301,6 +301,48 @@
   .bench-row:last-child{border-bottom:none;}
   .bench-row .bench-date{color:var(--muted);}
   .bench-row .bench-watts{font-family:'Space Mono',monospace;color:var(--ink);font-weight:700;}
+
+  .today-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:6px;}
+  .today-name{font-size:16px;font-weight:600;color:var(--ink);}
+  .today-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+  .today-weather{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .today-weather svg{width:30px;height:30px;flex-shrink:0;}
+  .weather-temp{font-family:'Space Mono',monospace;font-size:13px;color:var(--ink);white-space:nowrap;}
+  .weather-sub{font-size:10px;color:var(--muted);white-space:nowrap;}
+
+  .readiness-row{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);gap:10px;}
+  .readiness-label{font-size:12px;color:var(--muted);}
+  .readiness-btns{display:flex;gap:6px;}
+  .readiness-btns button{
+    border:1px solid var(--line);
+    background:var(--paper);
+    color:var(--ink);
+    border-radius:6px;
+    padding:6px 10px;
+    font-size:12px;
+    cursor:pointer;
+  }
+  .readiness-btns button.selected{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);}
+
+  .readiness-suggestion{
+    margin-top:12px;
+    padding:10px 12px;
+    background:var(--warn-bg);
+    border:1px solid var(--warn);
+    border-radius:8px;
+    font-size:12px;
+    color:var(--warn-text);
+  }
+  .readiness-suggestion button{
+    margin-top:8px;
+    border:1px solid var(--warn);
+    background:var(--warn);
+    color:var(--ink-on-accent);
+    border-radius:6px;
+    padding:6px 10px;
+    font-size:12px;
+    cursor:pointer;
+  }
   .skeleton{
     background:linear-gradient(90deg,var(--line) 25%,#333330 37%,var(--line) 63%);
     background-size:400% 100%;
@@ -466,6 +508,11 @@
   </div>
 
   <div class="view active" id="view-plan">
+
+  <div class="section-title">Today</div>
+  <div class="card" id="todayCard">
+    <div class="skeleton"></div>
+  </div>
 
   <!-- Hero: FTP + Weight + W/kg -->
   <div class="hero">
@@ -715,11 +762,11 @@ function renderSleep(wellness){
   const last7 = wellness.slice(-7);
   const container = document.getElementById('sleepBars');
   container.innerHTML = '';
-  const maxHrs = 9;
   const maxPx = 60;
   last7.forEach(w => {
     const hrs = w.sleepSecs ? w.sleepSecs / 3600 : 0;
-    const px = clamp(hrs / maxHrs * maxPx, 3, maxPx);
+    const score = w.sleepScore != null ? w.sleepScore : 0;
+    const px = clamp(score / 100 * maxPx, 3, maxPx);
     const day = new Date(w.id).toLocaleDateString('en-AU', { weekday: 'short' });
     const hrsLabel = w.sleepSecs ? `${hrs.toFixed(1)}h` : '';
     const scoreLabel = (w.sleepScore != null) ? `Score ${Math.round(w.sleepScore)}` : '';
@@ -1485,7 +1532,7 @@ function renderPlan(rows, reasoning){
           <button class="plan-remove" id="clearPlanBtn">Clear day</button>
         </div>
       </div>
-      ${buildSessionGraphSvg(sel)}
+      ${sel.type === 'Rest' ? '<div style="font-size:12px;color:var(--muted);padding:10px 0;">Rest day — nothing structured here.</div>' : buildSessionGraphSvg(sel)}
       <div class="plan-fields">
         <div>
           <label>Type</label>
@@ -1533,7 +1580,14 @@ function renderPlan(rows, reasoning){
   }));
 
   card.querySelectorAll('.f-type').forEach(el => el.addEventListener('change', e => {
-    window.__planRows[parseInt(e.target.dataset.idx,10)].type = e.target.value;
+    const row = window.__planRows[parseInt(e.target.dataset.idx,10)];
+    row.type = e.target.value;
+    if (row.type === 'Rest'){
+      row.duration = 0;
+      row.description = '';
+      if (!row.name || row.name.toLowerCase() !== 'rest day') row.name = 'Rest day';
+      renderPlan(window.__planRows, reasoning);
+    }
   }));
   card.querySelectorAll('.f-duration').forEach(el => el.addEventListener('change', e => {
     window.__planRows[parseInt(e.target.dataset.idx,10)].duration = parseInt(e.target.value,10) || 0;
@@ -1819,6 +1873,257 @@ async function savePlan(){
   }
 }
 
+// -----------------------------------------------------------------
+// Today card — at-a-glance snapshot, weather, and readiness check-in
+// -----------------------------------------------------------------
+
+function sunIconSvg(){
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4" y1="12" x2="2" y2="12"/><line x1="22" y1="12" x2="20" y2="12"/><line x1="5" y1="5" x2="6.5" y2="6.5"/><line x1="17.5" y1="17.5" x2="19" y2="19"/><line x1="19" y1="5" x2="17.5" y2="6.5"/><line x1="6.5" y1="17.5" x2="5" y2="19"/></svg>`;
+}
+function cloudSunIconSvg(){
+  return `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.5" stroke="var(--accent)"/><path d="M9 17a4 4 0 0 1-.4-7.98A5 5 0 0 1 18 11a4 4 0 0 1-1 6Z" stroke="var(--muted)"/></svg>`;
+}
+function cloudIconSvg(){
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 18a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 16.3 8.05 4.5 4.5 0 0 1 17.5 17H6Z"/></svg>`;
+}
+function rainIconSvg(){
+  return `<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 16.3 6.05 4.5 4.5 0 0 1 17.5 15H6Z" stroke="var(--muted)" stroke-width="2"/><line x1="8" y1="19" x2="7" y2="21" stroke="var(--z1)" stroke-width="2"/><line x1="12" y1="19" x2="11" y2="21" stroke="var(--z1)" stroke-width="2"/><line x1="16" y1="19" x2="15" y2="21" stroke="var(--z1)" stroke-width="2"/></svg>`;
+}
+function stormIconSvg(){
+  return `<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M6 14a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 16.3 4.05 4.5 4.5 0 0 1 17.5 13H6Z" stroke="var(--muted)" stroke-width="2"/><polyline points="11 16 9 20 12 20 10 23" stroke="var(--z4)" stroke-width="2"/></svg>`;
+}
+
+function weatherInfo(code){
+  if (code === 0) return { label:'Clear', icon: sunIconSvg() };
+  if (code === 1 || code === 2) return { label:'Partly cloudy', icon: cloudSunIconSvg() };
+  if ([51,53,55,56,57,61,63,65,66,67,80,81,82].includes(code)) return { label:'Rain', icon: rainIconSvg() };
+  if ([95,96,99].includes(code)) return { label:'Storm', icon: stormIconSvg() };
+  return { label:'Cloudy', icon: cloudIconSvg() };
+}
+
+function windDirectionLabel(deg){
+  const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+  return dirs[Math.round(deg / 45) % 8];
+}
+
+async function fetchWeather(){
+  const fallback = { lat: -27.4698, lon: 153.0251 }; // Brisbane fallback
+  let coords = fallback;
+  try {
+    coords = await new Promise((resolve, reject) => {
+      if (!navigator.geolocation) return reject(new Error('no geolocation'));
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+        () => reject(new Error('denied')),
+        { timeout: 4000 }
+      );
+    });
+  } catch(e){
+    coords = fallback;
+  }
+
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max,winddirection_10m_dominant&timezone=auto&forecast_days=1`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('weather fetch failed');
+  const data = await res.json();
+  const d = data.daily;
+  return {
+    code: d.weathercode[0],
+    tempMax: d.temperature_2m_max[0],
+    tempMin: d.temperature_2m_min[0],
+    precipProb: d.precipitation_probability_max[0],
+    windSpeed: d.windspeed_10m_max[0],
+    windDir: d.winddirection_10m_dominant[0],
+  };
+}
+
+async function saveReadiness(level, plannedEvent, todayStr){
+  try {
+    await sb.from('readiness_log').upsert({ date: todayStr, level });
+  } catch(e){
+    alert('Could not save: ' + e.message);
+    return;
+  }
+  document.querySelectorAll('.readiness-btns button').forEach(b => b.classList.toggle('selected', b.dataset.level === level));
+  if (level === 'rough'){
+    maybeShowSwapSuggestion(plannedEvent, todayStr);
+  } else {
+    const box = document.getElementById('readinessSuggestion');
+    if (box) box.innerHTML = '';
+  }
+}
+
+function maybeShowSwapSuggestion(plannedEvent, todayStr){
+  const box = document.getElementById('readinessSuggestion');
+  if (!box) return;
+  const alreadyEasy = !plannedEvent || plannedEvent.category === 'NOTE' || /easy|rest/i.test(plannedEvent.name || '');
+  if (alreadyEasy){
+    box.innerHTML = `<div class="readiness-suggestion">Noted — today's already an easy/rest day, nothing to swap.</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="readiness-suggestion">
+      Feeling rough — want to swap today's "${plannedEvent.name}" for an easy spin instead?
+      <br><button id="swapTodayBtn">Swap to easy spin</button>
+    </div>
+  `;
+  document.getElementById('swapTodayBtn').addEventListener('click', () => swapTodayToEasy(plannedEvent, todayStr));
+}
+
+async function swapTodayToEasy(plannedEvent, todayStr){
+  const dur = (plannedEvent && plannedEvent.moving_time) ? Math.round(plannedEvent.moving_time/60) : 40;
+  const row = { date: todayStr, id: plannedEvent.id, type:'Ride', name:'Easy spin', duration: dur, description: enduranceDesc(dur, true) };
+  try {
+    await saveRowToIntervals(row);
+  } catch(e){
+    alert('Could not update: ' + e.message);
+    return;
+  }
+  document.getElementById('readinessSuggestion').innerHTML = '<div style="font-size:12px;color:var(--muted);">Swapped — have an easy one.</div>';
+  loadTodayCard();
+}
+
+function urlBase64ToUint8Array(base64String){
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++){
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+async function enablePushNotifications(){
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)){
+    alert('Push notifications are not supported in this browser.');
+    return;
+  }
+  if (!window.VAPID_PUBLIC_KEY){
+    alert('Notifications are not set up yet — VAPID_PUBLIC_KEY is missing from config.js. See SETUP.md.');
+    return;
+  }
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted'){
+      alert('Notification permission was not granted.');
+      return;
+    }
+    const reg = await navigator.serviceWorker.ready;
+    const subscription = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(window.VAPID_PUBLIC_KEY),
+    });
+    await sb.from('push_subscriptions').insert({ subscription: subscription.toJSON() });
+    const btn = document.getElementById('notifToggle');
+    if (btn){ btn.textContent = '✓ Reminders enabled'; btn.disabled = true; }
+  } catch(e){
+    alert('Could not enable notifications: ' + e.message);
+  }
+}
+
+async function loadTodayCard(){
+  const card = document.getElementById('todayCard');
+  const todayStr = isoDate(new Date());
+
+  let weather = null;
+  try { weather = await fetchWeather(); } catch(e){ /* show the card without weather if it fails */ }
+
+  const doneActivity = (window.__lastActivities || []).find(a => (a.start_date_local||'').slice(0,10) === todayStr);
+
+  let plannedEvent = null;
+  if (!doneActivity){
+    try {
+      const events = await icuFetch('events', { oldest: todayStr, newest: addDaysToDateStr(todayStr, 1) });
+      plannedEvent = (events || []).find(ev => ['WORKOUT','NOTE'].includes(ev.category) && (ev.start_date_local||'').slice(0,10) === todayStr) || null;
+    } catch(e){ /* leave plannedEvent null */ }
+  }
+
+  let readinessLevel = null;
+  try {
+    const { data } = await sb.from('readiness_log').select('level').eq('date', todayStr).maybeSingle();
+    readinessLevel = data ? data.level : null;
+  } catch(e){ /* non-fatal */ }
+
+  const weatherHtml = weather ? `
+    <div class="today-weather">
+      ${weatherInfo(weather.code).icon}
+      <div>
+        <div class="weather-temp">${Math.round(weather.tempMin)}° / ${Math.round(weather.tempMax)}°</div>
+        <div class="weather-sub">${Math.round(weather.precipProb)}% rain · ${Math.round(weather.windSpeed)}km/h ${windDirectionLabel(weather.windDir)}</div>
+      </div>
+    </div>
+  ` : '';
+
+  let sessionHtml;
+  let graphRow = null;
+
+  if (doneActivity){
+    sessionHtml = `
+      <div class="today-session">
+        <div class="today-name">✓ ${doneActivity.name || doneActivity.type}</div>
+        <div class="today-meta">Done${doneActivity.moving_time ? ' · ' + Math.round(doneActivity.moving_time/60) + ' min' : ''}</div>
+      </div>
+    `;
+  } else if (plannedEvent){
+    const dur = plannedEvent.moving_time ? Math.round(plannedEvent.moving_time/60) : 0;
+    const isRest = plannedEvent.category === 'NOTE';
+    sessionHtml = `
+      <div class="today-session">
+        <div class="today-name">${isRest ? 'Rest day' : (plannedEvent.name || plannedEvent.type)}</div>
+        <div class="today-meta">${dur ? dur + ' min · ' : ''}${isRest ? 'Rest' : (plannedEvent.type || 'Ride')}</div>
+      </div>
+    `;
+    if (!isRest){
+      graphRow = { type: plannedEvent.type || 'Ride', name: plannedEvent.name, duration: dur, description: plannedEvent.description || '' };
+    }
+  } else {
+    sessionHtml = `
+      <div class="today-session">
+        <div class="today-name">Nothing planned yet</div>
+        <div class="today-meta">Check the Plan tab below</div>
+      </div>
+    `;
+  }
+
+  const graphHtml = graphRow ? buildSessionGraphSvg(graphRow) : '';
+
+  const notifSupported = ('serviceWorker' in navigator) && ('PushManager' in window);
+  const notifGranted = notifSupported && Notification.permission === 'granted';
+  const notifHtml = notifSupported && !notifGranted
+    ? `<button class="refresh-btn" id="notifToggle" style="margin-top:10px;">Enable reminders</button>`
+    : '';
+
+  card.innerHTML = `
+    <div class="today-row">
+      ${sessionHtml}
+      ${weatherHtml}
+    </div>
+    ${graphHtml}
+    <div class="readiness-row">
+      <div class="readiness-label">How are you feeling today?</div>
+      <div class="readiness-btns">
+        <button data-level="great" class="${readinessLevel==='great'?'selected':''}">Great</button>
+        <button data-level="ok" class="${readinessLevel==='ok'?'selected':''}">OK</button>
+        <button data-level="rough" class="${readinessLevel==='rough'?'selected':''}">Rough</button>
+      </div>
+    </div>
+    <div id="readinessSuggestion"></div>
+    ${notifHtml}
+  `;
+
+  card.querySelectorAll('.readiness-btns button').forEach(btn => {
+    btn.addEventListener('click', () => saveReadiness(btn.dataset.level, plannedEvent, todayStr));
+  });
+
+  const notifBtn = document.getElementById('notifToggle');
+  if (notifBtn) notifBtn.addEventListener('click', enablePushNotifications);
+
+  if (readinessLevel === 'rough' && !doneActivity){
+    maybeShowSwapSuggestion(plannedEvent, todayStr);
+  }
+}
+
 async function loadDashboardData(){
   const [wellness, activities, sportSettings] = await Promise.all([
     // Note: omitting `newest` entirely — Intervals.icu treats a bare date there as
@@ -1914,6 +2219,12 @@ async function init(){
       await loadWeekPlan();
     } catch (planErr){
       document.getElementById('planCard').innerHTML = `<div style="font-size:13px;color:var(--muted);">Could not load the weekly plan: ${planErr.message}</div>`;
+    }
+
+    try {
+      await loadTodayCard();
+    } catch (todayErr){
+      document.getElementById('todayCard').innerHTML = `<div style="font-size:13px;color:var(--muted);">Could not load today's snapshot: ${todayErr.message}</div>`;
     }
 
     try {
