@@ -8,5 +8,10 @@
 // Intervals.icu API key, never goes here — it only lives as a secret
 // on the Edge Function.
 
-window.SUPABASE_URL = 'https://uictdfglyuvenoqcibsb.supabase.co';         // e.g. https://abcxyz.supabase.co
-window.SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVpY3RkZmdseXV2ZW5vcWNpYnNiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODE3NjYwMTksImV4cCI6MjA5NzM0MjAxOX0.jepbi1WJ79vCAbehAs6i1U-XzAanxn3ynPJuMeA1F5I'; // the legacy anon/public key
+window.SUPABASE_URL = 'YOUR_SUPABASE_URL';         // e.g. https://abcxyz.supabase.co
+window.SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // the legacy anon/public key
+
+// Web Push public key — not a secret (that's the point of VAPID's public/private
+// split), safe to commit. The matching private key goes server-side only, as an
+// Edge Function secret — see SETUP.md for the "push notifications" section.
+window.VAPID_PUBLIC_KEY = 'BHLXwpcHiQNXngJlqbIDoIdufkZci3Qln8e6zQbOr8v-xX0RmQBir9c9iHEyGgydeK4se4cbM3mgBeRN7uVE0kU';
