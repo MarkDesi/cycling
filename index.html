@@ -1028,6 +1028,7 @@ function renderActivities(activities){
           </div>
         </div>
         <div class="stat-chips">${buildStatChips(a)}</div>
+        ${a.customFields && Object.keys(a.customFields).length ? `<div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace;word-break:break-all;">DEBUG customFields: ${JSON.stringify(a.customFields)}</div>` : ''}
         ${rpeHtml}
       `;
       card.appendChild(row);
@@ -2614,7 +2615,7 @@ async function loadDashboardData(){
     icuFetch('wellness', { oldest: isoDate(daysAgo(30)) }),
     icuFetch('activities', {
       oldest: isoDate(daysAgo(14)),
-      fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts,compliance'
+      fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts,compliance,customFields'
     }),
     icuFetch('sport-settings'),
   ]);
