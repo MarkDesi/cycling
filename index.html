@@ -2215,7 +2215,7 @@ function describeRainWindow(hourlyProbs, threshold = 35){
 
 // Compact sparkline — no axis labels or gridlines, just the shape of the day
 // plus a faint marker for the current hour. Deliberately small footprint.
-function buildHourlyRainSvg(hourlyProbs){
+function buildHourlyRainSvg(hourlyProbs, showNowMarker = true){
   if (!hourlyProbs || hourlyProbs.length < 2) return '';
   const W = 600, H = 56, padB = 14;
   const pts = hourlyProbs.map((p, i) => {
@@ -2224,14 +2224,18 @@ function buildHourlyRainSvg(hourlyProbs){
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   });
   const areaPoints = `0,${H-padB} ${pts.join(' ')} ${W},${H-padB}`;
-  const currentHour = new Date().getHours();
-  const nowX = (currentHour / (hourlyProbs.length - 1)) * W;
+  let nowMarker = '';
+  if (showNowMarker){
+    const currentHour = new Date().getHours();
+    const nowX = (currentHour / (hourlyProbs.length - 1)) * W;
+    nowMarker = `<line x1="${nowX.toFixed(1)}" y1="0" x2="${nowX.toFixed(1)}" y2="${H-padB}" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2,2" opacity="0.35"/>`;
+  }
 
   return `
     <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:46px;display:block;">
       <polygon points="${areaPoints}" fill="var(--z1)" opacity="0.18"/>
       <polyline points="${pts.join(' ')}" fill="none" stroke="var(--z1)" stroke-width="2"/>
-      <line x1="${nowX.toFixed(1)}" y1="0" x2="${nowX.toFixed(1)}" y2="${H-padB}" stroke="var(--ink)" stroke-width="1" stroke-dasharray="2,2" opacity="0.35"/>
+      ${nowMarker}
       <text x="2" y="${H}" font-size="9" fill="var(--muted)">12am</text>
       <text x="${W*0.25}" y="${H}" text-anchor="middle" font-size="9" fill="var(--muted)">6am</text>
       <text x="${W*0.5}" y="${H}" text-anchor="middle" font-size="9" fill="var(--muted)">12pm</text>
@@ -2273,7 +2277,10 @@ async function fetchWeather(){
   const hourlyToday = (data.hourly && data.hourly.precipitation_probability)
     ? data.hourly.precipitation_probability.slice(0, 24)
     : null;
-  return { today: dayAt(0), tomorrow: d.weathercode.length > 1 ? dayAt(1) : null, hourlyToday };
+  const hourlyTomorrow = (data.hourly && data.hourly.precipitation_probability && data.hourly.precipitation_probability.length >= 48)
+    ? data.hourly.precipitation_probability.slice(24, 48)
+    : null;
+  return { today: dayAt(0), tomorrow: d.weathercode.length > 1 ? dayAt(1) : null, hourlyToday, hourlyTomorrow };
 }
 
 async function saveReadiness(level, plannedEvent, todayStr){
@@ -2389,12 +2396,19 @@ async function loadTodayCard(){
   const weather = weatherData ? weatherData.today : null;
   const tomorrowWeather = weatherData ? weatherData.tomorrow : null;
   const hourlyToday = weatherData ? weatherData.hourlyToday : null;
+  const hourlyTomorrow = weatherData ? weatherData.hourlyTomorrow : null;
 
   const rainWindowSummary = describeRainWindow(hourlyToday);
   const hourlyRainHtml = rainWindowSummary ? `
     <div class="hourly-rain">
       <div class="hourly-rain-label">${rainWindowSummary}</div>
       ${buildHourlyRainSvg(hourlyToday)}
+    </div>
+  ` : '';
+
+  const tomorrowRainSparklineHtml = describeRainWindow(hourlyTomorrow) ? `
+    <div class="hourly-rain">
+      ${buildHourlyRainSvg(hourlyTomorrow, false)}
     </div>
   ` : '';
 
@@ -2484,6 +2498,7 @@ async function loadTodayCard(){
     </div>
     ${hourlyRainHtml}
     ${tomorrowWeatherHtml}
+    ${tomorrowRainSparklineHtml}
     ${weatherSuggestionHtml}
     ${graphHtml}
     <div class="readiness-row">
