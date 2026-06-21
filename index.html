@@ -1023,7 +1023,7 @@ function renderActivities(activities){
       // patch the result in below. Remove this whole block once the peak-power
       // custom field's real key is known and wired into buildStatChips directly.
       const debugId = `debug-cf-${a.id}`;
-      const debugHtml = idx < 3 ? `<div id="${debugId}" style="font-size:10px;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace;word-break:break-all;">DEBUG customFields: loading…</div>` : '';
+      const debugHtml = idx < 3 ? `<pre id="${debugId}" style="font-size:9px;line-height:1.4;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow-y:auto;background:var(--paper);border:1px solid var(--line);border-radius:6px;padding:8px;">DEBUG: loading…</pre>` : '';
       row.innerHTML = `
         <div class="meta">
           <div class="name">
@@ -1039,14 +1039,14 @@ function renderActivities(activities){
       `;
       card.appendChild(row);
       if (idx < 3){
-        icuFetch(`activity/${a.id}`, { fields: 'customFields' })
+        icuFetch(`activity/${a.id}`)
           .then(detail => {
             const el = document.getElementById(debugId);
-            if (el) el.textContent = `DEBUG customFields: ${JSON.stringify(detail.customFields ?? null)}`;
+            if (el) el.textContent = JSON.stringify(detail, null, 1);
           })
           .catch(err => {
             const el = document.getElementById(debugId);
-            if (el) el.textContent = `DEBUG customFields: error — ${err.message}`;
+            if (el) el.textContent = `DEBUG: error — ${err.message}`;
           });
       }
     });
