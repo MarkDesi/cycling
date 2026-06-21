@@ -131,9 +131,26 @@
   .sleep-bar .hrs{font-size:9px;color:var(--ink);margin-top:3px;font-family:'Space Mono',monospace;}
   .sleep-bar .score{font-size:8px;color:var(--muted);margin-top:1px;}
   .pmc-row{display:flex;justify-content:space-between;gap:8px;}
-  .pmc-tile{text-align:center;flex:1;}
+  .pmc-tile{text-align:center;flex:1;cursor:pointer;border-radius:8px;padding:4px;transition:background .15s ease;}
+  .pmc-tile:active{background:var(--accent-soft);}
   .pmc-tile .label{font-size:10px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);}
   .pmc-tile .val{font-family:'Space Mono',monospace;font-size:22px;font-weight:700;margin-top:4px;}
+  .pmc-tooltip{
+    font-size:11px;
+    color:var(--muted);
+    line-height:1.5;
+    margin-top:0;
+    max-height:0;
+    overflow:hidden;
+    border-top:0 solid var(--line);
+    transition:max-height .2s ease, margin-top .2s ease, padding-top .2s ease;
+  }
+  .pmc-tooltip.show{
+    margin-top:10px;
+    padding-top:10px;
+    border-top:1px solid var(--line);
+    max-height:80px;
+  }
 
   .section-title{
     font-size:13px;
@@ -174,6 +191,9 @@
     -webkit-appearance:none;
     appearance:none;
     height:4px;
+    margin:0;
+    padding:0;
+    display:block;
     border-radius:2px;
     background:var(--line);
     outline:none;
@@ -210,8 +230,21 @@
   }
   .activity:last-child{border-bottom:none;}
   .activity .meta{flex:1;min-width:0;flex-basis:100%;}
-  .activity .name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .activity .name{font-size:14px;font-weight:500;display:flex;align-items:center;gap:7px;min-width:0;}
+  .activity .name-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .activity .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+  .rpe-inline{
+    font-family:'Space Mono',monospace;
+    font-size:11px;
+    font-weight:700;
+    width:20px;
+    height:20px;
+    line-height:20px;
+    text-align:center;
+    border-radius:6px;
+    color:white;
+    flex-shrink:0;
+  }
   .compliance-badge{
     display:inline-flex;
     align-items:center;
@@ -227,21 +260,22 @@
   .stat-chips{
     display:flex;
     flex-wrap:wrap;
-    gap:6px;
-    margin-top:6px;
+    gap:7px;
+    margin-top:8px;
     flex-basis:100%;
   }
   .stat-chip{
     font-family:'Space Mono',monospace;
-    font-size:11px;
+    font-size:13px;
     background:var(--paper);
     border:1px solid var(--line);
-    border-radius:6px;
-    padding:3px 7px;
+    border-radius:7px;
+    padding:5px 9px;
     color:var(--ink);
+    font-weight:600;
     white-space:nowrap;
   }
-  .stat-chip .chip-label{color:var(--muted);margin-right:3px;}
+  .stat-chip .chip-label{color:var(--muted);font-weight:400;margin-right:4px;}
   .rpe-row{display:flex;gap:3px;flex-basis:100%;justify-content:flex-end;}
   .rpe-btn{
     width:22px;height:22px;
@@ -254,14 +288,6 @@
     cursor:pointer;
   }
   .rpe-btn:hover{border-color:var(--accent);}
-  .rpe-logged{
-    font-family:'Space Mono',monospace;
-    font-size:18px;
-    font-weight:700;
-    padding:4px 10px;
-    border-radius:8px;
-    color:white;
-  }
 
   .goal-form{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
   .goal-form .full{grid-column:1/-1;}
@@ -279,12 +305,13 @@
   .saved-flash{
     font-size:11px;
     color:var(--good);
-    margin-top:6px;
-    height:14px;
+    margin-top:0;
+    height:0;
     opacity:0;
+    overflow:hidden;
     transition:opacity .3s;
   }
-  .saved-flash.show{opacity:1;}
+  .saved-flash.show{opacity:1;height:14px;margin-top:6px;}
 
   .banner{
     background:var(--warn-bg);
@@ -609,15 +636,11 @@
   <div class="section-title">Fitness</div>
   <div class="card">
     <div class="pmc-row">
-      <div class="pmc-tile"><div class="label">CTL</div><div class="val mono" id="ctlVal">--</div></div>
-      <div class="pmc-tile"><div class="label">ATL</div><div class="val mono" id="atlVal">--</div></div>
-      <div class="pmc-tile"><div class="label">TSB</div><div class="val mono" id="tsbVal">--</div></div>
+      <div class="pmc-tile" data-tip="ctl"><div class="label">CTL</div><div class="val mono" id="ctlVal">--</div></div>
+      <div class="pmc-tile" data-tip="atl"><div class="label">ATL</div><div class="val mono" id="atlVal">--</div></div>
+      <div class="pmc-tile" data-tip="tsb"><div class="label">TSB</div><div class="val mono" id="tsbVal">--</div></div>
     </div>
-    <div class="subnote">
-      <strong>CTL</strong> (fitness) — your long-term training load, built up over ~6 weeks.
-      <strong>ATL</strong> (fatigue) — your short-term load from the last ~week.
-      <strong>TSB</strong> (form) — CTL minus ATL. Negative means you're carrying fatigue; positive means you're fresh.
-    </div>
+    <div class="pmc-tooltip" id="pmcTooltip"></div>
   </div>
 
   <div class="section-title">Sleep · last 7 days</div>
@@ -738,7 +761,17 @@ const FN_BASE = CONFIG.SUPABASE_URL ? `${CONFIG.SUPABASE_URL}/functions/v1/inter
 
 const ZONE_COLORS = ['#5AA9E6','#5AA9E6','#6FCF73','#6FCF73','#E0B23A','#E8743B','#E0524F','#E0524F','#E0524F','#E0524F'];
 
-function isoDate(d){ return d.toISOString().slice(0,10); }
+// Local calendar date, NOT toISOString() (which is UTC) — for timezones ahead
+// of UTC like Brisbane (UTC+10, no DST), toISOString() would still show
+// yesterday's date from midnight until 10am local time, which broke anything
+// keyed off "today" (readiness check-in, the Today card, etc.) during exactly
+// the hours someone would be opening the app each morning.
+function isoDate(d){
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 function daysAgo(n){ const d = new Date(); d.setDate(d.getDate()-n); return d; }
 function daysFromNow(n){ const d = new Date(); d.setDate(d.getDate()+n); return d; }
 function addDaysToDateStr(dateStr, n){ const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate()+n); return isoDate(d); }
@@ -817,14 +850,21 @@ function renderFtpWeight(currentFtp, currentWeight, ftpSource){
   document.getElementById('wkgGoalLine').textContent = `target ${goalWkg.toFixed(2)} by ${goals.target_date}`;
 }
 
+function tsbColor(tsb){
+  if (tsb <= -30) return 'var(--z5)';
+  if (tsb < 0) return 'var(--z4)';
+  if (tsb <= 15) return 'var(--z2)';
+  return 'var(--z1)';
+}
+
 function renderPMC(ctl, atl){
   document.getElementById('ctlVal').textContent = ctl != null ? Math.round(ctl) : '--';
   document.getElementById('atlVal').textContent = atl != null ? Math.round(atl) : '--';
   if (ctl != null && atl != null){
-    const tsb = (ctl - atl).toFixed(1);
+    const tsb = ctl - atl;
     const tsbEl = document.getElementById('tsbVal');
-    tsbEl.textContent = tsb;
-    tsbEl.style.color = tsb < -10 ? 'var(--warn)' : (tsb > 5 ? 'var(--good)' : 'var(--ink)');
+    tsbEl.textContent = tsb.toFixed(1);
+    tsbEl.style.color = tsbColor(tsb);
   }
 }
 
@@ -943,9 +983,10 @@ function renderActivities(activities){
       row.className = 'activity';
       const date = (a.start_date_local || '').slice(0,10);
       const logged = rpeMap[a.id];
-      let rpeHtml;
+      let rpeHtml = '';
+      let rpeInlineHtml = '';
       if (logged){
-        rpeHtml = `<div class="rpe-logged" style="background:${ZONE_COLORS[logged-1] || 'var(--accent)'}">${logged}</div>`;
+        rpeInlineHtml = `<span class="rpe-inline" style="background:${ZONE_COLORS[logged-1] || 'var(--accent)'}">${logged}</span>`;
       } else {
         let btns = '';
         for (let i=1;i<=10;i++){
@@ -955,7 +996,7 @@ function renderActivities(activities){
       }
       row.innerHTML = `
         <div class="meta">
-          <div class="name">${a.name || a.type}</div>
+          <div class="name"><span class="name-text">${a.name || a.type}</span>${rpeInlineHtml}</div>
           <div class="sub">${date} ${complianceBadge(a.compliance)}</div>
         </div>
         <div class="stat-chips">${buildStatChips(a)}</div>
@@ -980,7 +1021,9 @@ function buildLineChartSvg(points, opts = {}){
   if (!points || points.length < 2){
     return '<div style="font-size:12px;color:var(--muted);">Not enough data yet — check back after a few more weeks.</div>';
   }
-  const W = 600, H = 130, padL = 8, padR = 8, padT = 14, padB = 22;
+  const unit = opts.unit || '';
+  const decimals = opts.decimals != null ? opts.decimals : 0;
+  const W = 600, H = 150, padL = 36, padR = 8, padT = 14, padB = 22;
   const ys = points.map(p => p.y);
   let minY = Math.min(...ys);
   let maxY = Math.max(...ys);
@@ -999,11 +1042,22 @@ function buildLineChartSvg(points, opts = {}){
   if (opts.goalY != null){
     const gy = yForVal(opts.goalY).toFixed(1);
     goalLine = `<line x1="${padL}" y1="${gy}" x2="${W-padR}" y2="${gy}" stroke="var(--z2)" stroke-width="1" stroke-dasharray="4,4" opacity="0.7"/>
-      <text x="${W-padR}" y="${parseFloat(gy)-4}" text-anchor="end" font-size="9" fill="var(--z2)">goal</text>`;
+      <text x="${W-padR}" y="${parseFloat(gy)-4}" text-anchor="end" font-size="9" fill="var(--z2)">goal ${opts.goalY.toFixed(decimals)}${unit}</text>`;
   }
 
+  // Three reference lines (top/middle/bottom of the visible range) with actual
+  // values labeled, so the chart means something at a glance rather than just
+  // showing a shape with no scale.
+  const yTicks = [maxY, (maxY + minY) / 2, minY];
+  const yAxisHtml = yTicks.map(v => {
+    const y = yForVal(v).toFixed(1);
+    return `<line x1="${padL}" y1="${y}" x2="${W-padR}" y2="${y}" stroke="var(--line)" stroke-width="1"/>
+      <text x="${padL-6}" y="${(parseFloat(y)+3).toFixed(1)}" text-anchor="end" font-size="9" fill="var(--muted)">${v.toFixed(decimals)}${unit}</text>`;
+  }).join('');
+
   return `
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:120px;display:block;">
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:140px;display:block;">
+      ${yAxisHtml}
       ${goalLine}
       <polyline points="${linePoints}" fill="none" stroke="var(--accent)" stroke-width="2"/>
       ${dots}
@@ -1108,9 +1162,9 @@ async function loadProgressData(){
       renderPaceRow('FTP', 'W', ftpPace, 1) +
       renderPaceRow('Weight', 'kg', weightPace, 1);
 
-    document.getElementById('ftpTrendCard').innerHTML = buildLineChartSvg(ftpHistory, { goalY: goals.goal_ftp });
-    document.getElementById('weightTrendCard').innerHTML = buildLineChartSvg(weightHistory, { goalY: goals.goal_weight });
-    document.getElementById('ctlTrendCard').innerHTML = buildLineChartSvg(ctlHistory);
+    document.getElementById('ftpTrendCard').innerHTML = buildLineChartSvg(ftpHistory, { goalY: goals.goal_ftp, unit: 'W', decimals: 0 });
+    document.getElementById('weightTrendCard').innerHTML = buildLineChartSvg(weightHistory, { goalY: goals.goal_weight, unit: 'kg', decimals: 1 });
+    document.getElementById('ctlTrendCard').innerHTML = buildLineChartSvg(ctlHistory, { decimals: 0 });
 
     const benchActivities = await icuFetch('activities', {
       oldest: isoDate(daysAgo(180)),
@@ -2594,6 +2648,27 @@ async function init(){
     document.getElementById('hoursValueLabel').textContent = e.target.value;
   });
   document.getElementById('saveAvailabilityBtn').addEventListener('click', saveAvailability);
+
+  const PMC_TOOLTIPS = {
+    ctl: '<strong>CTL</strong> (fitness) — your long-term training load, built up over roughly 6 weeks.',
+    atl: '<strong>ATL</strong> (fatigue) — your short-term load from about the last week.',
+    tsb: '<strong>TSB</strong> (form) — CTL minus ATL. Negative means you\'re carrying fatigue; positive means you\'re fresh.',
+  };
+  document.querySelectorAll('.pmc-tile').forEach(tile => {
+    tile.addEventListener('click', () => {
+      const tip = document.getElementById('pmcTooltip');
+      const key = tile.dataset.tip;
+      const isSameAndOpen = tip.classList.contains('show') && tip.dataset.activeKey === key;
+      if (isSameAndOpen){
+        tip.classList.remove('show');
+        tip.dataset.activeKey = '';
+      } else {
+        tip.innerHTML = PMC_TOOLTIPS[key];
+        tip.classList.add('show');
+        tip.dataset.activeKey = key;
+      }
+    });
+  });
 
   ['baselineFtp','baselineWeight','goalFtp','goalWeight','targetDate'].forEach(id => {
     document.getElementById(id).addEventListener('change', saveGoal);
