@@ -230,9 +230,10 @@
   }
   .activity:last-child{border-bottom:none;}
   .activity .meta{flex:1;min-width:0;flex-basis:100%;}
-  .activity .name{font-size:14px;font-weight:500;display:flex;align-items:center;gap:7px;min-width:0;}
-  .activity .name-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-  .activity .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+  .activity .name{font-size:14px;font-weight:500;display:flex;align-items:center;gap:7px;min-width:0;flex-wrap:nowrap;}
+  .activity .name-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:1;min-width:30px;}
+  .activity .activity-date{font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0;}
+  .activity .name-spacer{flex:1;min-width:4px;}
   .rpe-inline{
     font-family:'Space Mono',monospace;
     font-size:11px;
@@ -259,11 +260,15 @@
   }
   .stat-chips{
     display:flex;
-    flex-wrap:wrap;
-    gap:7px;
+    flex-wrap:nowrap;
+    overflow-x:auto;
+    gap:6px;
     margin-top:8px;
     flex-basis:100%;
+    -webkit-overflow-scrolling:touch;
+    scrollbar-width:none;
   }
+  .stat-chips::-webkit-scrollbar{display:none;}
   .stat-chip{
     font-family:'Space Mono',monospace;
     font-size:13px;
@@ -274,6 +279,7 @@
     color:var(--ink);
     font-weight:600;
     white-space:nowrap;
+    flex-shrink:0;
   }
   .stat-chip .chip-label{color:var(--muted);font-weight:400;margin-right:4px;}
   .rpe-row{display:flex;gap:3px;flex-basis:100%;justify-content:flex-end;}
@@ -928,6 +934,24 @@ function formatDuration(seconds){
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
+function ordinalSuffix(n){
+  const j = n % 10, k = n % 100;
+  if (j === 1 && k !== 11) return 'st';
+  if (j === 2 && k !== 12) return 'nd';
+  if (j === 3 && k !== 13) return 'rd';
+  return 'th';
+}
+
+// e.g. "Sunday, 21st June 2026"
+function formatActivityDate(dateStr){
+  const d = new Date(dateStr + 'T00:00:00');
+  const weekday = d.toLocaleDateString('en-AU', { weekday: 'long' });
+  const day = d.getDate();
+  const month = d.toLocaleDateString('en-AU', { month: 'long' });
+  const year = d.getFullYear();
+  return `${weekday}, ${day}${ordinalSuffix(day)} ${month} ${year}`;
+}
+
 function buildStatChips(a){
   const chips = [];
   const dur = formatDuration(a.moving_time);
@@ -941,7 +965,7 @@ function buildStatChips(a){
   if (a.average_heartrate || a.max_heartrate){
     const avg = a.average_heartrate ? Math.round(a.average_heartrate) : '--';
     const max = a.max_heartrate ? Math.round(a.max_heartrate) : '--';
-    chips.push(`<span class="stat-chip"><span class="chip-label">HR</span>${avg} avg / ${max} max</span>`);
+    chips.push(`<span class="stat-chip"><span class="chip-label">HR</span>${avg}/${max}</span>`);
   }
 
   if (isRideType(a.type)){
@@ -950,7 +974,7 @@ function buildStatChips(a){
     if (avgPower || maxPower){
       const avg = avgPower ? Math.round(avgPower) : '--';
       const max = maxPower ? Math.round(maxPower) : '--';
-      chips.push(`<span class="stat-chip"><span class="chip-label">Power</span>${avg}W avg / ${max}W max</span>`);
+      chips.push(`<span class="stat-chip"><span class="chip-label">Power</span>${avg}/${max}W</span>`);
     }
   }
 
@@ -996,8 +1020,12 @@ function renderActivities(activities){
       }
       row.innerHTML = `
         <div class="meta">
-          <div class="name"><span class="name-text">${a.name || a.type}</span>${rpeInlineHtml}</div>
-          <div class="sub">${date} ${complianceBadge(a.compliance)}</div>
+          <div class="name">
+            <span class="name-text">${a.name || a.type}</span>${rpeInlineHtml}
+            <span class="activity-date">${formatActivityDate(date)}</span>
+            <span class="name-spacer"></span>
+            ${complianceBadge(a.compliance)}
+          </div>
         </div>
         <div class="stat-chips">${buildStatChips(a)}</div>
         ${rpeHtml}
