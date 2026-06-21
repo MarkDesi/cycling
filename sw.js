@@ -49,3 +49,32 @@ self.addEventListener('fetch', event => {
       .catch(() => caches.match(event.request))
   );
 });
+
+self.addEventListener('push', event => {
+  let data = { title: 'Project 270', body: 'You have a training update.' };
+  try {
+    if (event.data) data = event.data.json();
+  } catch(e){ /* fall back to default text above */ }
+
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Project 270', {
+      body: data.body || '',
+      icon: './icons/icon-192.png',
+      badge: './icons/icon-192.png',
+      data: { url: data.url || './index.html' },
+    })
+  );
+});
+
+self.addEventListener('notificationclick', event => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || './index.html';
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(windowClients => {
+      for (const client of windowClients){
+        if (client.url.includes('index.html') && 'focus' in client) return client.focus();
+      }
+      if (clients.openWindow) return clients.openWindow(targetUrl);
+    })
+  );
+});
