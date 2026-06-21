@@ -1002,7 +1002,7 @@ function renderActivities(activities){
   }
   loggedRpeMap(activities.map(a => a.id)).then(rpeMap => {
     card.innerHTML = '';
-    activities.forEach(a => {
+    activities.forEach((a, idx) => {
       const row = document.createElement('div');
       row.className = 'activity';
       const date = (a.start_date_local || '').slice(0,10);
@@ -1018,6 +1018,12 @@ function renderActivities(activities){
         }
         rpeHtml = `<div class="rpe-row">${btns}</div>`;
       }
+      // DEBUG: the bulk activities list doesn't return customFields, so for the
+      // first few rows we fetch the single-activity detail endpoint instead and
+      // patch the result in below. Remove this whole block once the peak-power
+      // custom field's real key is known and wired into buildStatChips directly.
+      const debugId = `debug-cf-${a.id}`;
+      const debugHtml = idx < 3 ? `<div id="${debugId}" style="font-size:10px;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace;word-break:break-all;">DEBUG customFields: loading…</div>` : '';
       row.innerHTML = `
         <div class="meta">
           <div class="name">
@@ -1028,10 +1034,21 @@ function renderActivities(activities){
           </div>
         </div>
         <div class="stat-chips">${buildStatChips(a)}</div>
-        ${a.customFields && Object.keys(a.customFields).length ? `<div style="font-size:10px;color:var(--muted);margin-top:6px;font-family:'Space Mono',monospace;word-break:break-all;">DEBUG customFields: ${JSON.stringify(a.customFields)}</div>` : ''}
+        ${debugHtml}
         ${rpeHtml}
       `;
       card.appendChild(row);
+      if (idx < 3){
+        icuFetch(`activity/${a.id}`, { fields: 'customFields' })
+          .then(detail => {
+            const el = document.getElementById(debugId);
+            if (el) el.textContent = `DEBUG customFields: ${JSON.stringify(detail.customFields ?? null)}`;
+          })
+          .catch(err => {
+            const el = document.getElementById(debugId);
+            if (el) el.textContent = `DEBUG customFields: error — ${err.message}`;
+          });
+      }
     });
     card.querySelectorAll('.rpe-btn').forEach(btn => {
       btn.addEventListener('click', () => {
