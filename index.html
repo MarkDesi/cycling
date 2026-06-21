@@ -335,6 +335,21 @@
   .weather-temp{font-family:'Space Mono',monospace;font-size:13px;color:var(--ink);white-space:nowrap;}
   .weather-sub{font-size:10px;color:var(--muted);white-space:nowrap;}
 
+  .tomorrow-weather{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    margin-top:8px;
+    padding-top:8px;
+    border-top:1px solid var(--line);
+    font-size:11px;
+    color:var(--muted);
+    flex-wrap:wrap;
+  }
+  .tomorrow-weather .tw-icon svg{width:16px;height:16px;display:block;}
+  .tomorrow-weather .tw-label{color:var(--ink);font-weight:600;}
+  .tomorrow-weather .tw-temp{font-family:'Space Mono',monospace;color:var(--ink);}
+
   .readiness-row{display:flex;justify-content:space-between;align-items:center;margin-top:14px;padding-top:12px;border-top:1px solid var(--line);gap:10px;}
   .readiness-label{font-size:12px;color:var(--muted);}
   .readiness-btns{display:flex;gap:6px;}
@@ -2031,19 +2046,20 @@ async function fetchWeather(){
     coords = fallback;
   }
 
-  const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max,winddirection_10m_dominant&timezone=auto&forecast_days=1`;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${coords.lat}&longitude=${coords.lon}&daily=weathercode,temperature_2m_max,temperature_2m_min,precipitation_probability_max,windspeed_10m_max,winddirection_10m_dominant&timezone=auto&forecast_days=2`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('weather fetch failed');
   const data = await res.json();
   const d = data.daily;
-  return {
-    code: d.weathercode[0],
-    tempMax: d.temperature_2m_max[0],
-    tempMin: d.temperature_2m_min[0],
-    precipProb: d.precipitation_probability_max[0],
-    windSpeed: d.windspeed_10m_max[0],
-    windDir: d.winddirection_10m_dominant[0],
-  };
+  const dayAt = i => ({
+    code: d.weathercode[i],
+    tempMax: d.temperature_2m_max[i],
+    tempMin: d.temperature_2m_min[i],
+    precipProb: d.precipitation_probability_max[i],
+    windSpeed: d.windspeed_10m_max[i],
+    windDir: d.winddirection_10m_dominant[i],
+  });
+  return { today: dayAt(0), tomorrow: d.weathercode.length > 1 ? dayAt(1) : null };
 }
 
 async function saveReadiness(level, plannedEvent, todayStr){
@@ -2135,8 +2151,10 @@ async function loadTodayCard(){
   const card = document.getElementById('todayCard');
   const todayStr = isoDate(new Date());
 
-  let weather = null;
-  try { weather = await fetchWeather(); } catch(e){ /* show the card without weather if it fails */ }
+  let weatherData = null;
+  try { weatherData = await fetchWeather(); } catch(e){ /* show the card without weather if it fails */ }
+  const weather = weatherData ? weatherData.today : null;
+  const tomorrowWeather = weatherData ? weatherData.tomorrow : null;
 
   const doneActivity = (window.__lastActivities || []).find(a => (a.start_date_local||'').slice(0,10) === todayStr);
 
@@ -2161,6 +2179,15 @@ async function loadTodayCard(){
         <div class="weather-temp">${Math.round(weather.tempMin)}° / ${Math.round(weather.tempMax)}°</div>
         <div class="weather-sub">${Math.round(weather.precipProb)}% rain · ${Math.round(weather.windSpeed)}km/h ${windDirectionLabel(weather.windDir)}</div>
       </div>
+    </div>
+  ` : '';
+
+  const tomorrowWeatherHtml = tomorrowWeather ? `
+    <div class="tomorrow-weather">
+      <span class="tw-icon">${weatherInfo(tomorrowWeather.code).icon}</span>
+      <span class="tw-label">Tomorrow:</span>
+      <span class="tw-temp">${Math.round(tomorrowWeather.tempMin)}° / ${Math.round(tomorrowWeather.tempMax)}°</span>
+      <span class="tw-sub">${Math.round(tomorrowWeather.precipProb)}% rain · ${Math.round(tomorrowWeather.windSpeed)}km/h ${windDirectionLabel(tomorrowWeather.windDir)}</span>
     </div>
   ` : '';
 
@@ -2213,6 +2240,7 @@ async function loadTodayCard(){
       ${sessionHtml}
       ${weatherHtml}
     </div>
+    ${tomorrowWeatherHtml}
     ${weatherSuggestionHtml}
     ${graphHtml}
     <div class="readiness-row">
