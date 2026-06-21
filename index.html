@@ -212,6 +212,18 @@
   .activity .meta{flex:1;min-width:0;flex-basis:100%;}
   .activity .name{font-size:14px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .activity .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+  .compliance-badge{
+    display:inline-flex;
+    align-items:center;
+    gap:3px;
+    font-family:'Space Mono',monospace;
+    font-size:10px;
+    font-weight:700;
+    padding:1px 6px;
+    border:1px solid;
+    border-radius:9px;
+    margin-left:4px;
+  }
   .stat-chips{
     display:flex;
     flex-wrap:wrap;
@@ -385,6 +397,7 @@
   }
   .readiness-suggestion button{
     margin-top:8px;
+    margin-right:8px;
     border:1px solid var(--warn);
     background:var(--warn);
     color:var(--ink-on-accent);
@@ -392,6 +405,10 @@
     padding:6px 10px;
     font-size:12px;
     cursor:pointer;
+  }
+  .readiness-suggestion #swapTodayShortBtn{
+    background:transparent;
+    color:var(--warn-text);
   }
   .skeleton{
     background:linear-gradient(90deg,var(--line) 25%,#333330 37%,var(--line) 63%);
@@ -498,7 +515,7 @@
     color:var(--ink);
     resize:vertical;
   }
-  .plan-fields textarea{font-size:12px;min-height:40px;}
+  .plan-fields textarea{font-size:12px;min-height:40px;resize:none;overflow:hidden;}
   .plan-actions{display:flex;gap:10px;margin-top:14px;}
   .btn{
     border:none;
@@ -897,6 +914,18 @@ function buildStatChips(a){
   return chips.join('');
 }
 
+function complianceBadge(compliance){
+  // null = no planned workout to compare against that week; < 0 = manually
+  // marked "ignore" on Intervals.icu itself. Neither is worth showing.
+  if (compliance == null || compliance < 0) return '';
+  const pct = Math.round(compliance);
+  let color, symbol;
+  if (pct >= 80 && pct <= 120){ color = 'var(--z2)'; symbol = '✓'; }
+  else if (pct >= 50 && pct <= 150){ color = 'var(--z4)'; symbol = '✓'; }
+  else { color = 'var(--z5)'; symbol = '✕'; }
+  return `<span class="compliance-badge" style="color:${color};border-color:${color};">${symbol} ${pct}%</span>`;
+}
+
 function renderActivities(activities){
   window.__lastActivities = activities;
   const card = document.getElementById('activitiesCard');
@@ -924,7 +953,7 @@ function renderActivities(activities){
       row.innerHTML = `
         <div class="meta">
           <div class="name">${a.name || a.type}</div>
-          <div class="sub">${date}</div>
+          <div class="sub">${date} ${complianceBadge(a.compliance)}</div>
         </div>
         <div class="stat-chips">${buildStatChips(a)}</div>
         ${rpeHtml}
@@ -1224,6 +1253,118 @@ function ftpTestDesc(){
   return `Warmup\n- 10m ramp 50-65%\n- 5m 80%\n- 1m 100%\n- 4m 60%\nMain Set\n- 20m freeride\nCooldown\n- 10m 50%`;
 }
 
+// 30/30s VO2max microbursts — short, repeated, less mentally grinding than
+// sustained 3min VO2max intervals, similar physiological target via a
+// different stimulus.
+function microburstDesc(totalMin){
+  const warmup = 15;
+  const blockMin = 20*1; // 20 reps x (30s on + 30s off) = 20 minutes
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- 15m ramp 50-65%\nMain Set 20x\n- 30s 120%\n- 30s 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+// Sweet-spot-adjacent steady efforts, below threshold — builds the aerobic
+// engine without the same fatigue cost as threshold/VO2max work. A different
+// zone to anything else currently in the pool.
+function tempoDesc(totalMin){
+  const warmup = 12;
+  const blockMin = 2*20;
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- 12m ramp 50-65%\nMain Set 2x\n- 20m 80-88%\n- 5m 55%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+// Short maximal sprints with full recovery — neuromuscular power and
+// anaerobic capacity, rounds out the power profile beyond pure FTP work.
+function sprintDesc(totalMin){
+  const warmup = 15;
+  const blockMin = 8*(0.25+3); // 8 reps x (15s sprint + 3m recovery)
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- 12m ramp 50-65%\n- 3m 90%\nMain Set 8x\n- 15s 150%\n- 3m 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+// Pyramid — ascending then descending interval lengths at threshold, each
+// with equal recovery. Different structural shape to the flat repeated
+// blocks elsewhere in the pool, same physiological target as threshold work.
+function pyramidDesc(totalMin){
+  const warmup = 12;
+  const blockMin = (1+1)+(2+2)+(3+3)+(2+2)+(1+1);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set\n- 1m 95%\n- 1m 50%\n- 2m 95%\n- 2m 50%\n- 3m 100%\n- 3m 50%\n- 2m 95%\n- 2m 50%\n- 1m 95%\n- 1m 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+// -----------------------------------------------------------------
+// Shortened variants — for days you're feeling rough but still want some
+// quality stimulus rather than a full easy spin. Both lower volume (fewer
+// reps) and slightly dialed-back peak intensity vs. the full version.
+// -----------------------------------------------------------------
+
+function shortOverUnderDesc(totalMin){
+  const warmup = 10;
+  const blockMin = 2*(2+2);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set 2x\n- 2m 92%\n- 2m 100%\nCooldown\n- ${cooldown}m ramp 60-50%`;
+}
+
+function shortVo2maxDesc(totalMin){
+  const warmup = 10;
+  const blockMin = 3*(3+3);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- 10m ramp 50-65%\n- 2m 85%\nMain Set 3x\n- 3m 105-110%\n- 3m 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+function shortThresholdDesc(totalMin){
+  const warmup = 10;
+  const blockMin = 2*(6+3);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set 2x\n- 6m 92-97%\n- 3m 55%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+function shortMicroburstDesc(totalMin){
+  const warmup = 10;
+  const blockMin = 10*1;
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set 10x\n- 30s 115%\n- 30s 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+function shortTempoDesc(totalMin){
+  const warmup = 8;
+  const blockMin = 15;
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set\n- 15m 78-85%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+function shortSprintDesc(totalMin){
+  const warmup = 10;
+  const blockMin = 5*(0.25+3);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m ramp 50-65%\n- 2m 85%\nMain Set 5x\n- 15s 140%\n- 3m 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+function shortPyramidDesc(totalMin){
+  const warmup = 10;
+  const blockMin = (1+1)+(2+2)+(1+1);
+  const cooldown = Math.max(5, totalMin - warmup - blockMin);
+  return `Warmup\n- ${warmup}m ramp 50-65%\nMain Set\n- 1m 92%\n- 1m 50%\n- 2m 95%\n- 2m 50%\n- 1m 92%\n- 1m 50%\nCooldown\n- ${cooldown}m 50%`;
+}
+
+// Maps a full session's display name (as set in buildSessions' variety pool)
+// to its shortened builder. Used by the readiness check-in's "rough" path.
+const SHORT_SESSION_MAP = {
+  'Over-unders': shortOverUnderDesc,
+  'VO2max intervals': shortVo2maxDesc,
+  'Threshold intervals': shortThresholdDesc,
+  'Microbursts': shortMicroburstDesc,
+  'Tempo intervals': shortTempoDesc,
+  'Sprints': shortSprintDesc,
+  'Pyramid intervals': shortPyramidDesc,
+};
+
+function findShortVariant(sessionName){
+  if (!sessionName) return null;
+  const baseName = sessionName.replace(/\s*\(progression\)\s*$/i, '').trim();
+  return SHORT_SESSION_MAP[baseName] || null;
+}
+
 function weekNumberForDate(programStartDate, targetDate){
   const start = new Date(programStartDate + 'T00:00:00');
   const diffDays = Math.round((targetDate - start) / (24*3600*1000));
@@ -1383,14 +1524,21 @@ function buildSessions(mode, goalsCfg, currentFtp, phaseInfo){
     // Slot 1: fixed benchmark — same structure every time, so completed power/RPE/HR are directly comparable week to week.
     sessions.push({ type:'Ride', name:'Sweet Spot Benchmark', duration: 65, description: benchmarkDesc() });
 
-    // Slot 2: rotates through variety across the 3 load weeks of each mesocycle, only if you've got 4+ days.
+    // Slot 2: rotates through variety across the whole build phase (not just the
+    // 3-week mesocycle), only if you've got 4+ days — with 7 options this takes
+    // multiple mesocycles to repeat, rather than the same 3-week pattern forever.
     if (days >= 4){
       const variety = [
         { label:'Over-unders', build: overUnderDesc },
         { label:'VO2max intervals', build: vo2maxDesc },
         { label:'Threshold intervals', build: thresholdDesc },
+        { label:'Microbursts', build: microburstDesc },
+        { label:'Tempo intervals', build: tempoDesc },
+        { label:'Sprints', build: sprintDesc },
+        { label:'Pyramid intervals', build: pyramidDesc },
       ];
-      const idx = ((phaseInfo.cyclePos || 1) - 1) % 3;
+      const buildWeek = phaseInfo.weekNumber - 4;
+      const idx = ((buildWeek || 1) - 1) % variety.length;
       const chosen = variety[idx];
       const varDur = Math.round(weekMin * 0.18);
       let name = chosen.label;
@@ -1507,10 +1655,12 @@ function parseWorkoutSteps(desc){
       currentRepeat = repMatch ? parseInt(repMatch[1], 10) : 1;
       return;
     }
-    const stepMatch = line.match(/-\s*(\d+)\s*m\s+(.+)/i);
+    const stepMatch = line.match(/-\s*(\d+)\s*(m|s)\s+(.+)/i);
     if (!stepMatch) return;
-    const duration = parseInt(stepMatch[1], 10);
-    let intensityRaw = stepMatch[2].trim();
+    const rawValue = parseInt(stepMatch[1], 10);
+    const unit = stepMatch[2].toLowerCase();
+    const duration = unit === 's' ? rawValue / 60 : rawValue;
+    let intensityRaw = stepMatch[3].trim();
     let isRamp = false;
     if (/^ramp\s+/i.test(intensityRaw)){
       isRamp = true;
@@ -1719,9 +1869,17 @@ function renderPlan(rows, reasoning){
   card.querySelectorAll('.f-name').forEach(el => el.addEventListener('change', e => {
     window.__planRows[parseInt(e.target.dataset.idx,10)].name = e.target.value;
   }));
-  card.querySelectorAll('.f-desc').forEach(el => el.addEventListener('change', e => {
-    window.__planRows[parseInt(e.target.dataset.idx,10)].description = e.target.value;
-  }));
+  card.querySelectorAll('.f-desc').forEach(el => {
+    el.style.height = 'auto';
+    el.style.height = el.scrollHeight + 'px';
+    el.addEventListener('input', () => {
+      el.style.height = 'auto';
+      el.style.height = el.scrollHeight + 'px';
+    });
+    el.addEventListener('change', e => {
+      window.__planRows[parseInt(e.target.dataset.idx,10)].description = e.target.value;
+    });
+  });
 
   document.getElementById('movePlanBtn').addEventListener('click', () => {
     window.__pickedDayIdx = (window.__pickedDayIdx === selIdx) ? null : selIdx;
@@ -2086,13 +2244,18 @@ function maybeShowSwapSuggestion(plannedEvent, todayStr){
     box.innerHTML = `<div class="readiness-suggestion">Noted — today's already an easy/rest day, nothing to swap.</div>`;
     return;
   }
+  const shortBuilder = findShortVariant(plannedEvent.name);
+  const shortBtn = shortBuilder ? `<button id="swapTodayShortBtn">Shorter version instead</button>` : '';
   box.innerHTML = `
     <div class="readiness-suggestion">
-      Feeling rough — want to swap today's "${plannedEvent.name}" for an easy spin instead?
-      <br><button id="swapTodayBtn">Swap to easy spin</button>
+      Feeling rough — want to dial back today's "${plannedEvent.name}"?
+      <br>${shortBtn}<button id="swapTodayBtn">Full easy spin instead</button>
     </div>
   `;
   document.getElementById('swapTodayBtn').addEventListener('click', () => swapTodayToEasy(plannedEvent, todayStr));
+  if (shortBuilder){
+    document.getElementById('swapTodayShortBtn').addEventListener('click', () => swapTodayToShort(plannedEvent, todayStr, shortBuilder));
+  }
 }
 
 async function swapTodayToEasy(plannedEvent, todayStr){
@@ -2105,6 +2268,20 @@ async function swapTodayToEasy(plannedEvent, todayStr){
     return;
   }
   document.getElementById('readinessSuggestion').innerHTML = '<div style="font-size:12px;color:var(--muted);">Swapped — have an easy one.</div>';
+  loadTodayCard();
+}
+
+async function swapTodayToShort(plannedEvent, todayStr, shortBuilder){
+  const fullDur = (plannedEvent && plannedEvent.moving_time) ? Math.round(plannedEvent.moving_time/60) : 40;
+  const dur = Math.max(20, Math.round(fullDur * 0.6));
+  const row = { date: todayStr, id: plannedEvent.id, type:'Ride', name: plannedEvent.name + ' (short)', duration: dur, description: shortBuilder(dur) };
+  try {
+    await saveRowToIntervals(row);
+  } catch(e){
+    alert('Could not update: ' + e.message);
+    return;
+  }
+  document.getElementById('readinessSuggestion').innerHTML = '<div style="font-size:12px;color:var(--muted);">Shortened — same stimulus, less volume.</div>';
   loadTodayCard();
 }
 
@@ -2274,7 +2451,7 @@ async function loadDashboardData(){
     icuFetch('wellness', { oldest: isoDate(daysAgo(30)) }),
     icuFetch('activities', {
       oldest: isoDate(daysAgo(14)),
-      fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts'
+      fields: 'id,name,type,start_date_local,moving_time,distance,average_heartrate,max_heartrate,average_watts,max_watts,icu_weighted_avg_watts,icu_average_watts,icu_max_watts,compliance'
     }),
     icuFetch('sport-settings'),
   ]);
