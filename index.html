@@ -165,18 +165,38 @@
   .sleep-bar .fill{width:100%;background:var(--z1);border-radius:4px 4px 0 0;min-height:3px;}
   .sleep-bar .day{font-size:9px;color:var(--muted);margin-top:4px;}
 
-  .avail-row{display:flex;gap:12px;}
+  .avail-row{display:flex;gap:20px;}
   .avail-field{flex:1;}
-  .avail-field label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;}
-  .avail-field input{
+  .avail-field label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:8px;}
+  .avail-value{font-family:'Space Mono',monospace;font-size:13px;color:var(--accent);font-weight:700;}
+  .avail-field input[type="range"]{
     width:100%;
-    border:1px solid var(--line);
-    border-radius:8px;
-    padding:8px 10px;
-    font-family:'Space Mono',monospace;
-    font-size:15px;
-    background:var(--paper);
-    color:var(--ink);
+    -webkit-appearance:none;
+    appearance:none;
+    height:4px;
+    border-radius:2px;
+    background:var(--line);
+    outline:none;
+  }
+  .avail-field input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none;
+    appearance:none;
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    background:var(--accent);
+    border:3px solid var(--paper);
+    box-shadow:0 0 0 1px var(--accent);
+    cursor:pointer;
+  }
+  .avail-field input[type="range"]::-moz-range-thumb{
+    width:20px;
+    height:20px;
+    border-radius:50%;
+    background:var(--accent);
+    border:3px solid var(--paper);
+    box-shadow:0 0 0 1px var(--accent);
+    cursor:pointer;
   }
 
   .activity{
@@ -302,6 +322,11 @@
   .bench-row .bench-date{color:var(--muted);}
   .bench-row .bench-watts{font-family:'Space Mono',monospace;color:var(--ink);font-weight:700;}
 
+  .overview-legend{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:12px;font-size:11px;color:var(--muted);}
+  .overview-legend span{display:flex;align-items:center;gap:5px;}
+  .overview-legend i{width:10px;height:10px;border-radius:3px;display:inline-block;}
+  .overview-meta{font-size:11px;color:var(--muted);margin-top:8px;}
+
   .today-row{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:6px;}
   .today-name{font-size:16px;font-weight:600;color:var(--ink);}
   .today-meta{font-size:12px;color:var(--muted);margin-top:2px;}
@@ -323,6 +348,16 @@
     cursor:pointer;
   }
   .readiness-btns button.selected{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);}
+
+  .weather-suggestion{
+    margin-top:10px;
+    padding:10px 12px;
+    background:rgba(102,153,204,0.12);
+    border:1px solid var(--z1);
+    border-radius:8px;
+    font-size:12px;
+    color:var(--ink);
+  }
 
   .readiness-suggestion{
     margin-top:12px;
@@ -559,14 +594,15 @@
   <div class="card">
     <div class="avail-row">
       <div class="avail-field">
-        <label>Days / week</label>
-        <input type="number" id="daysInput" min="1" max="7" step="1">
+        <label>Days / week <span class="avail-value" id="daysValueLabel">4</span></label>
+        <input type="range" id="daysInput" min="1" max="7" step="1">
       </div>
       <div class="avail-field">
-        <label>Hours / week</label>
-        <input type="number" id="hoursInput" min="1" max="30" step="0.5">
+        <label>Hours / week <span class="avail-value" id="hoursValueLabel">6</span></label>
+        <input type="range" id="hoursInput" min="2" max="15" step="0.5">
       </div>
     </div>
+    <button class="refresh-btn" id="saveAvailabilityBtn" style="width:100%;margin-top:12px;">Save</button>
     <div class="saved-flash" id="availSaved">Saved</div>
   </div>
 
@@ -574,6 +610,11 @@
 
   <div class="section-title">This week's plan</div>
   <div class="card" id="planCard">
+    <div class="skeleton"></div>
+  </div>
+
+  <div class="section-title">Whole program</div>
+  <div class="card" id="overviewCard">
     <div class="skeleton"></div>
   </div>
 
@@ -698,6 +739,8 @@ async function loadGoals(){
   if (!goals.program_start_date) goals.program_start_date = isoDate(new Date());
   document.getElementById('daysInput').value = goals.days_per_week;
   document.getElementById('hoursInput').value = goals.hours_per_week;
+  document.getElementById('daysValueLabel').textContent = goals.days_per_week;
+  document.getElementById('hoursValueLabel').textContent = goals.hours_per_week;
   document.getElementById('baselineFtp').value = goals.baseline_ftp;
   document.getElementById('baselineWeight').value = goals.baseline_weight;
   document.getElementById('goalFtp').value = goals.goal_ftp;
@@ -1235,6 +1278,64 @@ function phaseReasoning(phaseInfo){
   return `Week ${phaseInfo.weekNumber}, build cycle day ${phaseInfo.cyclePos} of 3 before the next deload.`;
 }
 
+function phaseColor(phaseInfo){
+  if (phaseInfo.phase === 'taper') return phaseInfo.taperLevel === 'final' ? 'var(--z1)' : 'var(--z2)';
+  if (phaseInfo.phase === 'base') return 'var(--muted)';
+  if (phaseInfo.isFtpTestWeek) return 'var(--z5)';
+  if (phaseInfo.isScheduledDeload) return 'var(--z4)';
+  return 'var(--accent)';
+}
+
+// A "year at a glance" grid — one cell per week of the whole program, colored
+// by phase, so you can see the base/build/deload/taper shape of the entire
+// plan rather than just the current 7 days.
+function buildProgramOverviewSvg(goalsCfg){
+  const totalWeeks = Math.max(1, Math.ceil((new Date(goalsCfg.target_date) - new Date(goalsCfg.program_start_date)) / (7*24*3600*1000)));
+  const currentWeek = getWeekNumber(goalsCfg.program_start_date);
+
+  const cols = 13;
+  const cellSize = 18;
+  const gap = 4;
+  const pitch = cellSize + gap;
+  const rows = Math.ceil(totalWeeks / cols);
+  const W = cols * pitch - gap;
+  const H = rows * pitch - gap;
+
+  let cells = '';
+  for (let w = 1; w <= totalWeeks; w++){
+    const idx = w - 1;
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x = col * pitch;
+    const y = row * pitch;
+    const wut = weeksUntilTargetForWeek(goalsCfg.program_start_date, w, goalsCfg.target_date);
+    const phaseInfo = computePhase(w, wut);
+    const fill = phaseColor(phaseInfo);
+    const isCurrent = w === currentWeek;
+    cells += `<rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" rx="3" fill="${fill}" ${isCurrent ? 'stroke="var(--ink)" stroke-width="2"' : ''}/>`;
+  }
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block;">${cells}</svg>`;
+}
+
+function loadProgramOverview(){
+  const card = document.getElementById('overviewCard');
+  const totalWeeks = Math.max(1, Math.ceil((new Date(goals.target_date) - new Date(goals.program_start_date)) / (7*24*3600*1000)));
+  const currentWeek = getWeekNumber(goals.program_start_date);
+  card.innerHTML = `
+    ${buildProgramOverviewSvg(goals)}
+    <div class="overview-legend">
+      <span><i style="background:var(--muted)"></i> Base</span>
+      <span><i style="background:var(--accent)"></i> Build</span>
+      <span><i style="background:var(--z4)"></i> Deload</span>
+      <span><i style="background:var(--z5)"></i> FTP test</span>
+      <span><i style="background:var(--z2)"></i> Taper</span>
+      <span><i style="background:var(--z1)"></i> Final taper</span>
+    </div>
+    <div class="overview-meta">Week ${currentWeek} of ${totalWeeks} · outlined cell = this week</div>
+  `;
+}
+
 function buildSessions(mode, goalsCfg, currentFtp, phaseInfo){
   const totalMin = Math.round(goalsCfg.hours_per_week * 60);
   let days = goalsCfg.days_per_week;
@@ -1489,6 +1590,9 @@ function swapPlanDays(i, j){
 
 function renderPlan(rows, reasoning){
   const card = document.getElementById('planCard');
+  const existingStrip = card.querySelector('.cal-strip');
+  const savedScrollLeft = existingStrip ? existingStrip.scrollLeft : null;
+
   if (window.__selectedDayIdx == null || window.__selectedDayIdx >= rows.length){
     window.__selectedDayIdx = 0;
   }
@@ -1566,6 +1670,11 @@ function renderPlan(rows, reasoning){
     <div class="saved-flash" id="planSaved">Saved to calendar</div>
   `;
   card.innerHTML = html;
+
+  if (savedScrollLeft != null){
+    const newStrip = card.querySelector('.cal-strip');
+    if (newStrip) newStrip.scrollLeft = savedScrollLeft;
+  }
 
   card.querySelectorAll('.cal-day').forEach(el => el.addEventListener('click', () => {
     const idx = parseInt(el.dataset.idx, 10);
@@ -2088,6 +2197,11 @@ async function loadTodayCard(){
 
   const graphHtml = graphRow ? buildSessionGraphSvg(graphRow) : '';
 
+  const isRainyToday = weather && (weather.precipProb >= 50 || [61,63,65,66,67,80,81,82,95,96,99].includes(weather.code));
+  const weatherSuggestionHtml = (isRainyToday && plannedEvent && plannedEvent.category !== 'NOTE' && !doneActivity)
+    ? `<div class="weather-suggestion">${Math.round(weather.precipProb)}% chance of rain today — might be worth taking "${plannedEvent.name}" indoors on the trainer instead.</div>`
+    : '';
+
   const notifSupported = ('serviceWorker' in navigator) && ('PushManager' in window);
   const notifGranted = notifSupported && Notification.permission === 'granted';
   const notifHtml = notifSupported && !notifGranted
@@ -2099,6 +2213,7 @@ async function loadTodayCard(){
       ${sessionHtml}
       ${weatherHtml}
     </div>
+    ${weatherSuggestionHtml}
     ${graphHtml}
     <div class="readiness-row">
       <div class="readiness-label">How are you feeling today?</div>
@@ -2184,10 +2299,16 @@ async function init(){
     return;
   }
 
-  // Wire up blur-to-save for availability + goal fields
-  ['daysInput','hoursInput'].forEach(id => {
-    document.getElementById(id).addEventListener('change', saveAvailability);
+  // Availability sliders: update the live label while dragging, only save on
+  // explicit "Save" tap — avoids writing to Intervals.icu on every drag tick.
+  document.getElementById('daysInput').addEventListener('input', e => {
+    document.getElementById('daysValueLabel').textContent = e.target.value;
   });
+  document.getElementById('hoursInput').addEventListener('input', e => {
+    document.getElementById('hoursValueLabel').textContent = e.target.value;
+  });
+  document.getElementById('saveAvailabilityBtn').addEventListener('click', saveAvailability);
+
   ['baselineFtp','baselineWeight','goalFtp','goalWeight','targetDate'].forEach(id => {
     document.getElementById(id).addEventListener('change', saveGoal);
   });
@@ -2219,6 +2340,12 @@ async function init(){
       await loadWeekPlan();
     } catch (planErr){
       document.getElementById('planCard').innerHTML = `<div style="font-size:13px;color:var(--muted);">Could not load the weekly plan: ${planErr.message}</div>`;
+    }
+
+    try {
+      loadProgramOverview();
+    } catch (overviewErr){
+      document.getElementById('overviewCard').innerHTML = `<div style="font-size:13px;color:var(--muted);">Could not build the program overview: ${overviewErr.message}</div>`;
     }
 
     try {
