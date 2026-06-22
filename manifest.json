@@ -1,7 +1,7 @@
 {
   "name": "Project 270",
   "short_name": "Project 270",
-  "description": "Adaptive cycling training plan, periodized toward a 270W FTP goal.",
+  "description": "Adaptive cycling training plan, periodized toward an FTP goal. Update the name/short_name here manually when you change goals — the in-app header updates automatically from Supabase.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
