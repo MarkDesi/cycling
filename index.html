@@ -598,7 +598,7 @@
 <div class="wrap">
 
   <header class="top">
-    <div class="word">PROJECT 270</div>
+    <div class="word" id="appTitle">PROJECT</div>
     <div class="date mono" id="todayLabel"></div>
   </header>
 
@@ -820,6 +820,13 @@ async function loadGoals(){
   document.getElementById('goalFtp').value = goals.goal_ftp;
   document.getElementById('goalWeight').value = goals.goal_weight;
   document.getElementById('targetDate').value = goals.target_date;
+  updateAppTitle(goals.goal_ftp);
+}
+
+function updateAppTitle(goalFtp){
+  const name = goalFtp ? `PROJECT ${Math.round(goalFtp)}` : 'PROJECT';
+  document.getElementById('appTitle').textContent = name;
+  document.title = `Project ${Math.round(goalFtp)}`;
 }
 
 function isRideType(type){
@@ -2571,6 +2578,8 @@ async function loadTodayCard(){
   const notifGranted = notifSupported && Notification.permission === 'granted';
   const notifHtml = notifSupported && !notifGranted
     ? `<button class="refresh-btn" id="notifToggle" style="margin-top:10px;">Enable reminders</button>`
+    : notifGranted
+    ? `<button class="refresh-btn" id="testNotifBtn" style="margin-top:10px;opacity:0.6;font-size:11px;">Test notification</button>`
     : '';
 
   card.innerHTML = `
@@ -2601,6 +2610,28 @@ async function loadTodayCard(){
 
   const notifBtn = document.getElementById('notifToggle');
   if (notifBtn) notifBtn.addEventListener('click', enablePushNotifications);
+
+  const testBtn = document.getElementById('testNotifBtn');
+  if (testBtn){
+    testBtn.addEventListener('click', async () => {
+      testBtn.textContent = 'Firing…';
+      testBtn.disabled = true;
+      try {
+        const res = await fetch(`${CONFIG.SUPABASE_URL}/functions/v1/send-reminders`, {
+          method: 'POST',
+          headers: {
+            'apikey': CONFIG.SUPABASE_ANON_KEY,
+            'Authorization': `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        const body = await res.json().catch(() => res.text());
+        testBtn.textContent = `Result: ${JSON.stringify(body)}`;
+      } catch(e){
+        testBtn.textContent = `Error: ${e.message}`;
+      }
+    });
+  }
 
   if (readinessLevel === 'rough' && !doneActivity){
     maybeShowSwapSuggestion(plannedEvent, todayStr);
